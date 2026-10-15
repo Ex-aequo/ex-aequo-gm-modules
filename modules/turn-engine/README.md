@@ -40,7 +40,7 @@ O `world.json` gera-se com o módulo [world-map](../world-map/).
 - Cada variante corre em várias seeds (`--seeds`); o resumo dá média e mínimo–máximo.
 - 3 fações deixam de enviar ordens nos turnos 25, 40 e 60 (testa regência e dissolução).
 - Entram jogadores novos nos turnos 20, 50 e 75, se houver lugar (teto de 25 ativas).
-- Métricas por turno em `build/sim/metrics.json`: % do mapa perdido para a Praga, contaminado e livre, fações ativas,
+- Métricas por turno e por seed em `build/sim/runs.json`: % do mapa perdido para a Praga, contaminado e livre, fações ativas,
   maior e menor fação, índice de Gini, homens em armas, conquistas, surtos.
 
 Resultados: [v0.2](../../docs/simulacao-v0.2.md), [v0.3](../../docs/simulacao-v0.3.md).
