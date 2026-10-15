@@ -10,6 +10,7 @@ módulos até dois deles precisarem da mesma coisa.
 | Módulo | Estado | O que faz |
 |---|---|---|
 | [world-map](modules/world-map/) | protótipo | Mapa-mundo a partir de dados Azgaar: base pintada determinística, regiões jogáveis, fronteiras e Praga em WebGL2 |
+| [turn-engine](modules/turn-engine/) | protótipo | Motor de turnos determinístico (regras v0.2), bots e simulação de N turnos com métricas |
 
 ## Convenções
 
@@ -17,7 +18,7 @@ módulos até dois deles precisarem da mesma coisa.
   (por exemplo, `modules/world-map/worlds/*.toml`). Um mundo "oficial" congelado publica-se como release.
 - **Sem IA generativa para assets.** O visual sai de código, dados e ferramentas determinísticas.
 - Decisões de arquitetura registam-se em [docs/decisoes.md](docs/decisoes.md).
-- Regras do jogo Praga (rascunho): [docs/regras-nucleo.md](docs/regras-nucleo.md).
+- Regras do jogo Praga (rascunho): [docs/regras-nucleo.md](docs/regras-nucleo.md). Resultados da simulação: [docs/simulacao-v0.2.md](docs/simulacao-v0.2.md).
 
 ## Licença
 
