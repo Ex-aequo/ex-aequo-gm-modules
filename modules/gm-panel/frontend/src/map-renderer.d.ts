@@ -14,7 +14,8 @@ declare module "@map-renderer" {
     fit(): void;
     focusOn(regionId: number, zoom?: number): void;
     setFactions(list: { id: number; name: string; color: string }[]): void;
-    setState(state: { owner?: ArrayLike<number>; plague?: ArrayLike<number> }): void;
+    setState(state: { owner?: ArrayLike<number>; plague?: ArrayLike<number>; fog?: ArrayLike<number> | null }): void;
+    fogAt(regionId: number): number;
     setOptions(opts: Partial<{ borders: boolean; plague: boolean; rivers: boolean; labels: boolean }>): void;
     setSelected(id: number): void;
     setMarkers(list: MapMarker[]): void;

@@ -12,6 +12,8 @@ import { createMapRenderer, PRAGA } from "../map-renderer/renderer.js";
 const map = await createMapRenderer({ canvas, overlay, dataUrl: "data" });   // world.json, base.jpg, regions.png
 map.setFactions([{ id: 1, name: "Waju", color: "#66c2a5" }, { id: PRAGA, name: "A Praga", color: "#3a1d40" }]);
 map.setState({ owner, plague });       // arrays indexados pelo id da região; owner -1 = Praga; plague 0..1
+map.setState({ fog });                 // nevoeiro por região: 0 desconhecida, 1 conhecida, 2 visível, 3 espiada/própria
+map.setState({ fog: null });           // desliga o nevoeiro (vista do GM)
 map.setMarkers([{ region: 115, kind: "suggestion" }, { region: 220, kind: "pending", label: "foco pendente" }]);
 map.on("click", (regionId) => …);
 map.on("hover", (regionId) => …);
@@ -25,3 +27,13 @@ A Praga anima enquanto houver regiões infetadas, exceto com `prefers-reduced-mo
 ## Limites
 
 - Até **4095 regiões** (tabela de regiões em textura 1024 × 4) e **254 fações** (a 255 está reservada à Praga).
+
+## Nevoeiro
+
+- **Desconhecida:** pergaminho por desenhar; sem rios, estradas, burgos nem nomes.
+- **Conhecida:** relevo em tons lavados, com o último dono conhecido.
+- **Visível / espiada / própria:** normal.
+A transição é suave (campo calculado a partir das regiões à volta) e a água herda a visão das terras próximas.
+O renderizador só esconde: quem decide o que cada jogador sabe é o servidor (ver turn-engine, `player_view`).
+Os ficheiros do mapa (`base.jpg`, `world.json`) têm o mundo inteiro; num servidor real têm de ser servidos por
+jogador (ver "Limitações" no README do world-map).

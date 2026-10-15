@@ -32,9 +32,12 @@ app = FastAPI(title="Praga — painel do GM (sandbox)")
 
 
 class GMOrder(BaseModel):
-    type: Literal["plague_state", "plague_focus", "plague_intensity"]
+    type: Literal["plague_state", "plague_focus", "plague_intensity", "rumor"]
     value: str | None = None
     region: int | None = None
+    text: str | None = None
+    factions: list[int] | None = None
+    radius: int | None = None
 
     def to_order(self) -> dict:
         return {k: v for k, v in self.model_dump().items() if v is not None}
@@ -59,6 +62,15 @@ def get_region(rid: int):
         return sandbox.region(rid)
     except KeyError:
         raise HTTPException(404, "região inexistente")
+
+
+@app.get("/api/view/{fid}")
+def get_view(fid: int):
+    """Vista de um jogador: só o que essa fação sabe (nevoeiro, §8)."""
+    try:
+        return sandbox.view(fid)
+    except KeyError:
+        raise HTTPException(404, "fação inexistente")
 
 
 @app.post("/api/gm/orders")

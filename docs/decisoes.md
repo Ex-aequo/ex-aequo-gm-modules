@@ -70,3 +70,22 @@ Formato: data — decisão — porquê — o que fica em aberto.
 - **Em aberto:** as regras v0.4 foram calibradas com 24 fações e ~400 regiões. Com 150 reinos de 4 províncias, 29 %
   dos reinos-bot desaparecem em 100 turnos (contra ~8 % com 25 reinos): é preciso re-simular e recalibrar
   (pontos de comando, guarnições, ritmo da Praga por região) antes de escolher a escala do jogo.
+
+## 2026-10-15 — Nevoeiro de guerra: decidido no servidor, fotografias com data
+
+- **Decisão:** cada fação conhece só o que viu (regras §8). O que foi visto fica como fotografia com o turno; ao vivo
+  só o que se vê agora. Batedores e espiões para ver mais longe; rumores vagos sobre a Praga; rumores do GM.
+- **Porquê "fotografia" e não "visto para sempre ao vivo":** se tudo o que foi visto ficasse ao vivo, a meio do jogo
+  cada jogador via quase tudo e o nevoeiro deixava de contar.
+- **Porquê no servidor:** um nevoeiro só desenhado no browser é contornado com as ferramentas do browser. O motor
+  constrói a vista do jogador (`praga/vision.py: player_view`) só a partir das fotografias; um teste garante que mudar o
+  que o jogador não vê não muda a vista dele.
+- **Consequências:**
+  - O estado guarda, por fação, as fotografias de cada região conhecida (~40 bytes cada).
+  - O renderizador ganhou um modo de nevoeiro (pergaminho, tons lavados, rios e burgos só onde se conhece).
+  - O painel do GM tem "ver como jogador" e um cartão de rumores.
+- **Em aberto (servidor real):** `world.json`, `base.jpg` e `regions.png` têm o mundo inteiro (nomes, geografia,
+  donos iniciais). No sandbox não importa; no jogo, quem abrir as ferramentas do browser vê o mapa todo. Antes de
+  haver jogadores, é preciso servir o mapa por jogador: tiles da base só das regiões conhecidas e um `world.json`
+  filtrado. Junta-se bem com os tiles por nível de zoom que já estavam previstos.
+

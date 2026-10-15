@@ -16,6 +16,7 @@ mais bots e uma simulação para pôr as regras sob pressão. Python 3.11+, só 
 ```
 praga/rules.py    todas as constantes das regras (um sítio só para calibrar)
 praga/state.py    mapa estático, estado do jogo, arranque
+praga/vision.py   nevoeiro (§8): visão, fotografias, vista do jogador, rumores
 praga/orders.py   validação das 7 ordens e custos em pontos de comando
 praga/engine.py   resolve_turn(): fases 1–9 do §5; Praga; regência, dissolução, eliminação, entrada tardia
 praga/bots.py     bots expansionista / construtor / defensor (para teste, não são IA a sério)
@@ -48,7 +49,11 @@ O `world.json` gera-se com o módulo [world-map](../world-map/).
 - Métricas por turno e por seed em `build/sim/runs.json`: % do mapa perdido para a Praga, contaminado e livre, fações ativas,
   maior e menor fação, índice de Gini, homens em armas, conquistas, surtos.
 
-Resultados: [v0.2](../../docs/simulacao-v0.2.md), [v0.3](../../docs/simulacao-v0.3.md), [v0.4](../../docs/simulacao-v0.4.md).
+Resultados: [v0.2](../../docs/simulacao-v0.2.md), [v0.3](../../docs/simulacao-v0.3.md), [v0.4](../../docs/simulacao-v0.4.md), [v0.5](../../docs/simulacao-v0.5.md).
+
+**Nevoeiro (§8):** o que um jogador recebe sai de `vision.player_view(state, world, rules, fid)`, construída só a partir
+das fotografias da fação. O teste `test_player_view_does_not_depend_on_hidden_state` muda tudo o que a fação não vê e
+verifica que a vista fica igual. Qualquer servidor deve enviar só isto aos jogadores.
 
 ## Limites conhecidos (v0.1 do motor)
 

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MapMarker } from "@map-renderer";
 import { api } from "./api";
 import { MapView } from "./MapView";
-import type { ChronicleEntry, GameState, GMOrder, Intensity, Metrics, Preview, RegionDetail } from "./types";
+import type {
+  ChronicleEntry, GameState, GMOrder, InboxEntry, Intensity, KnownRegion, MapData, Metrics, PlayerView, Preview, RegionDetail,
+} from "./types";
 
 const INTENSITY: { value: Intensity; label: string; hint: string }[] = [
   { value: "weak", label: "Fraca", hint: "×0,5" },
@@ -17,6 +19,9 @@ const BIOME_PT: Record<string, string> = {
 };
 const BUILDING_PT: Record<string, string> = { farm: "Quinta", sawmill: "Serração", iron_mine: "Mina de ferro", gold_mine: "Mina de ouro" };
 const pct = (x: number) => `${(x * 100).toFixed(1).replace(".", ",")}%`;
+const SIZE_PT = ["pequena", "média", "grande", "enorme"];
+const PLAGUE_PT = ["limpa", "contaminada", "infestada", "perdida"];
+const LEVEL_PT = ["", "conhecida", "visível", "espiada", "tua"];
 
 export function App() {
   const [game, setGame] = useState<GameState | null>(null);
@@ -31,6 +36,8 @@ export function App() {
   const [hover, setHover] = useState(0);
   const [focusTarget, setFocusTarget] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
+  const [viewAs, setViewAs] = useState(0);              // 0 = GM (tudo); senão, a vista de uma fação
+  const [view, setView] = useState<PlayerView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const run = useCallback(async <T,>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
@@ -46,8 +53,21 @@ export function App() {
   }, []);
 
   useEffect(() => { run("A carregar", async () => setGame(await api.state())); }, [run]);
+  useEffect(() => {
+    if (!viewAs) { setView(null); return; }
+    run("A ler a vista do jogador", async () => setView(await api.view(viewAs)));
+  }, [viewAs, game?.turn, run]);
+  // ao mudar de fação, o mapa vai ter com ela
+  const [centredOn, setCentredOn] = useState(0);
+  useEffect(() => {
+    if (!view || view.faction.id === centredOn) return;
+    const home = view.armies[0]?.region ?? Number(Object.keys(view.regions).find((k) => view.regions[k].level === 4));
+    if (home) setFocusTarget(home);
+    setCentredOn(view.faction.id);
+  }, [view, centredOn]);
 
   const regionName = (id: number) => names.get(id) ?? `região ${id}`;
+  const knownTo = (id: number) => !view || (view.fog[id] ?? 0) > 0;
   const factionName = (id: number) =>
     id === -1 ? "A Praga" : id === 0 ? "Terras livres" : game?.factions.find((f) => f.id === id)?.name ?? `fação ${id}`;
 
@@ -89,17 +109,17 @@ export function App() {
     if (!id) return;
     if (focusMode) { setConfirmFocus(id); return; }
     setSelected(id);
-    run("A ler região", async () => setDetail(await api.region(id)));
+    if (!viewAs) run("A ler região", async () => setDetail(await api.region(id)));
   };
 
   const markers = useMemo<MapMarker[]>(() => {
-    if (!game) return [];
+    if (!game || viewAs) return [];
     const pendingFoci = game.pending.filter((o): o is Extract<GMOrder, { type: "plague_focus" }> => o.type === "plague_focus").map((o) => o.region);
     const list: MapMarker[] = game.suggested_foci.filter((r) => !pendingFoci.includes(r)).map((r) => ({ region: r, kind: "suggestion" }));
     for (const r of pendingFoci) list.push({ region: r, kind: "pending", label: "foco pendente" });
     if (confirmFocus) list.push({ region: confirmFocus, kind: "pending", label: "confirmar?" });
     return list;
-  }, [game, confirmFocus]);
+  }, [game, confirmFocus, viewAs]);
 
   if (!game) {
     return <div className="boot">{error ? `Não foi possível ligar ao servidor: ${error}` : "A carregar o mundo…"}</div>;
@@ -111,11 +131,14 @@ export function App() {
   const nextActive = pendingState ? pendingState.value === "active" : game.plague_active;
   const nextIntensity = pendingIntensity?.value ?? game.plague_intensity;
   const leader = game.factions.find((f) => f.id === m.leader);
+  const mapData: MapData = view
+    ? { owner: view.owner, plague: view.plague, fog: view.fog, factions: [...view.map_factions, game.praga] }
+    : { owner: shown.owner, plague: shown.plague, fog: null, factions: [...shown.factions, game.praga] };
 
   return (
     <div className="app">
       <MapView
-        snapshot={shown}
+        data={mapData}
         markers={markers}
         selected={selected}
         focusTarget={focusTarget}
@@ -136,7 +159,13 @@ export function App() {
             <button type="button" className="link" onClick={() => { setFocusMode(false); setConfirmFocus(null); }}>cancelar</button>
           </div>
         )}
-        {hover > 0 && <div className="hover-name">{regionName(hover)}</div>}
+        {view && (
+          <div className="banner view">
+            A ver como <b>{view.faction.name}</b>: só o que esta fação sabe
+            <button type="button" className="link" onClick={() => setViewAs(0)}>voltar à vista do GM</button>
+          </div>
+        )}
+        {hover > 0 && <div className="hover-name">{knownTo(hover) ? regionName(hover) : "Terra desconhecida"}</div>}
       </div>
 
       <aside className="panel">
@@ -153,6 +182,16 @@ export function App() {
           </div>
         </header>
         {(busy || error) && <div className={`status ${error ? "err" : ""}`} role="status">{error ?? `${busy}…`}</div>}
+
+        <section className="card">
+          <h2>Ver como jogador</h2>
+          <p className="muted small">O mapa e as mensagens mostram só o que essa fação sabe — o mesmo que o servidor lhe enviaria.</p>
+          <select aria-label="Ver como" value={viewAs} onChange={(e) => { setViewAs(+e.target.value); setDetail(null); setSelected(0); }}>
+            <option value={0}>Mestre de jogo (tudo)</option>
+            {game.factions.filter((f) => f.active).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+          {view && <PlayerCard v={view} selected={selected} regionName={regionName} factionName={factionName} />}
+        </section>
 
         <section className="card">
           <h2>Estado do mundo</h2>
@@ -226,6 +265,9 @@ export function App() {
             </>
           )}
         </section>
+
+        <RumourCard factions={game.factions.filter((f) => f.active)} selected={viewAs ? 0 : selected}
+          regionName={regionName} busy={!!busy} onSend={addOrder} />
 
         <section className="card">
           <h2>Ordens para o próximo turno</h2>
@@ -301,6 +343,10 @@ export function App() {
 function describeOrder(o: GMOrder, name: (id: number) => string) {
   if (o.type === "plague_state") return o.value === "active" ? "Despertar a Praga" : "Adormecer a Praga";
   if (o.type === "plague_intensity") return `Intensidade ${INTENSITY.find((i) => i.value === o.value)?.label.toLowerCase()}`;
+  if (o.type === "rumor") {
+    const to = o.factions ? `${o.factions.length} fação(ões)` : `fações a ≤${o.radius} regiões de ${name(o.region!)}`;
+    return `Rumor para ${to}: “${o.text.length > 60 ? o.text.slice(0, 60) + "…" : o.text}”`;
+  }
   return `Abrir foco em ${name(o.region)}`;
 }
 
@@ -405,3 +451,110 @@ function Chronicle({ entries, onRegion }: { entries: ChronicleEntry[]; onRegion:
     </ul>
   );
 }
+
+function RumourCard({ factions, selected, regionName, busy, onSend }: {
+  factions: { id: number; name: string }[]; selected: number; regionName: (id: number) => string; busy: boolean;
+  onSend: (o: GMOrder) => Promise<unknown>;
+}) {
+  const [text, setText] = useState("");
+  const [mode, setMode] = useState<"faction" | "region">("faction");
+  const [target, setTarget] = useState(factions[0]?.id ?? 0);
+  const [radius, setRadius] = useState(6);
+  const canSend = text.trim().length > 0 && (mode === "faction" ? target > 0 : selected > 0);
+  const send = async () => {
+    const o: GMOrder = mode === "faction"
+      ? { type: "rumor", text: text.trim(), factions: [target] }
+      : { type: "rumor", text: text.trim(), region: selected, radius };
+    await onSend(o);
+    setText("");
+  };
+  return (
+    <section className="card">
+      <h2>Rumores</h2>
+      <p className="muted small">Chegam às fações no próximo turno, como mensagem. Podem ser verdadeiros ou falsos.</p>
+      <textarea rows={3} maxLength={500} value={text} placeholder="Ex.: Mercadores falam de luzes estranhas nas montanhas a norte."
+        aria-label="Texto do rumor" onChange={(e) => setText(e.target.value)} />
+      <div className="segmented" role="radiogroup" aria-label="Destino">
+        <button type="button" role="radio" aria-checked={mode === "faction"} className={mode === "faction" ? "on" : ""}
+          onClick={() => setMode("faction")}>Uma fação</button>
+        <button type="button" role="radio" aria-checked={mode === "region"} className={mode === "region" ? "on" : ""}
+          onClick={() => setMode("region")}>À volta de uma região</button>
+      </div>
+      <div className="row gap">
+        {mode === "faction" ? (
+          <select aria-label="Fação" value={target} onChange={(e) => setTarget(+e.target.value)}>
+            {factions.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        ) : (
+          <>
+            <span className="small">{selected ? regionName(selected) : "clica numa região no mapa"}</span>
+            <select aria-label="Raio" value={radius} onChange={(e) => setRadius(+e.target.value)}>
+              {[3, 6, 10, 15].map((r) => <option key={r} value={r}>até {r} regiões</option>)}
+            </select>
+          </>
+        )}
+        <button type="button" onClick={send} disabled={busy || !canSend}>Enviar</button>
+      </div>
+    </section>
+  );
+}
+
+function PlayerCard({ v, selected, regionName, factionName }: {
+  v: PlayerView; selected: number; regionName: (id: number) => string; factionName: (id: number) => string;
+}) {
+  const scouts = v.agents.filter((a) => a.kind === "scout").length;
+  const spies = v.agents.length - scouts;
+  const r = selected ? v.regions[String(selected)] : undefined;
+  return (
+    <div className="player">
+      <div className="stats">
+        <Stat label="Mapa conhecido" value={pct(v.known_share)} />
+        <Stat label="Fações conhecidas" value={String(v.factions.length)} />
+        <Stat label="Batedores · espiões" value={`${scouts} · ${spies}`} />
+      </div>
+      <p className="small muted">
+        Ouro {Math.round(v.faction.stock.gold)} · comida {Math.round(v.faction.stock.food)} · madeira {Math.round(v.faction.stock.wood)}
+        {" "}· ferro {Math.round(v.faction.stock.iron)} · {v.faction.command_points} pontos de comando
+      </p>
+      {selected > 0 && <KnownRegionCard id={selected} r={r} turn={v.turn} regionName={regionName} factionName={factionName} />}
+      <h3>Mensagens</h3>
+      <Inbox entries={v.inbox} />
+    </div>
+  );
+}
+
+function KnownRegionCard({ id, r, turn, regionName, factionName }: {
+  id: number; r: KnownRegion | undefined; turn: number; regionName: (id: number) => string; factionName: (id: number) => string;
+}) {
+  if (!r) return <div className="region"><div className="region-name">Terra desconhecida</div><p className="muted small">Ninguém desta fação esteve lá.</p></div>;
+  const armies = r.x ? r.x.armies.map(([o, men]) => `${men} (${factionName(o)})`)
+    : (r.a ?? []).map(([o, b]) => `força ${SIZE_PT[b]} (${factionName(o)})`);
+  return (
+    <div className="region">
+      <div className="region-name">{regionName(id)}</div>
+      <div className="muted small">{LEVEL_PT[r.level]}{r.level === 1 ? ` · visto no turno ${r.t} (há ${turn - r.t} turnos)` : ""}</div>
+      <dl>
+        <dt>Senhor</dt><dd>{factionName(r.o)}</dd>
+        <dt>Praga</dt><dd>{r.plague !== undefined ? `${r.plague}%` : PLAGUE_PT[r.p ?? 0]}</dd>
+        <dt>Fortificação</dt><dd>{r.fort ?? r.f ?? 0} / 3</dd>
+        <dt>Exércitos</dt><dd>{armies.length ? armies.join(", ") : r.g !== undefined ? `guarnição ${SIZE_PT[r.g]}` : "—"}</dd>
+      </dl>
+    </div>
+  );
+}
+
+function Inbox({ entries }: { entries: InboxEntry[] }) {
+  if (!entries.length) return <p className="muted small">Sem mensagens.</p>;
+  const label = { rumour: "Rumor", gm: "Rumor", report: "Relatório" } as const;
+  return (
+    <ul className="chronicle">
+      {[...entries].reverse().slice(0, 15).map((e, i) => (
+        <li key={i} className={`k-${e.kind === "report" ? "faction" : "plague"}`}>
+          <span className="t">T{e.turn}</span>
+          <span><b>{label[e.kind]}.</b> {e.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+

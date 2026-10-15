@@ -8,6 +8,8 @@ Formato das ordens (dicts JSON):
   {"type": "build",    "region": 12, "what": "fort" | "farm" | "sawmill" | "iron_mine" | "gold_mine" | "upgrade"}
   {"type": "recruit",  "region": 12, "men": 200}
   {"type": "posture",  "faction": 7, "value": "ally" | "neutral" | "hostile"}
+  {"type": "recruit_agent", "region": 12, "kind": "scout" | "spy"}         (§8)
+  {"type": "agent_move",    "agent": 4, "path": [13, 14]}                  (§8: batedor 2 passos, espião 1)
 """
 from __future__ import annotations
 
@@ -45,6 +47,17 @@ def move_cost(world: WorldMap, src: int, dst: int) -> int | None:
     return None
 
 
+def agent_step_cost(world: WorldMap, src: int, dst: int) -> int | None:
+    """Batedores e espiões só andam por terra; terreno difícil custa 2."""
+    if dst not in world.regions[src].neighbors:
+        return None
+    return 2 if world.regions[dst].rough else 1
+
+
+def agent_cost(kind: str, rules: Rules) -> dict | None:
+    return {"scout": rules.scout_cost, "spy": rules.spy_cost}.get(kind)
+
+
 def validate(state: GameState, world: WorldMap, rules: Rules, fid: int, orders: list[dict]) -> tuple[list[dict], list[str]]:
     """Devolve (ordens aceites, erros). Aceita ordens pela ordem dada até esgotar pontos de comando."""
     accepted, errors = [], []
@@ -52,7 +65,7 @@ def validate(state: GameState, world: WorldMap, rules: Rules, fid: int, orders: 
     if not faction or not faction.active:
         return [], ["fação inexistente ou inativa"]
     pc = state.command_points(fid, rules)
-    used_armies, used_regions = set(), set()
+    used_armies, used_regions, used_agents = set(), set(), set()
     reserve = {k: 0.0 for k in faction.stock}
     hostile_now = {k for k, v in faction.postures.items() if v == "hostile"}
     for o in orders:
@@ -153,6 +166,47 @@ def validate(state: GameState, world: WorldMap, rules: Rules, fid: int, orders: 
                             reserve[k] += v * men / 100
             if not err:
                 used_regions.add((rid, t))
+
+        elif t == "recruit_agent":
+            rid, kind = o.get("region"), o.get("kind")
+            r = state.regions.get(rid)
+            need = agent_cost(kind, rules)
+            if not r or r.owner != fid:
+                err = "região não é tua"
+            elif need is None:
+                err = "tipo de agente tem de ser 'scout' ou 'spy'"
+            elif (rid, t) in used_regions:
+                err = "já há um recrutamento de agente nesta região"
+            else:
+                for k, v in need.items():
+                    if faction.stock[k] - reserve[k] < v:
+                        err = f"recursos insuficientes ({k})"
+                        break
+                else:
+                    for k, v in need.items():
+                        reserve[k] += v
+                    used_regions.add((rid, t))
+
+        elif t == "agent_move":
+            ag = state.agents.get(o.get("agent"))
+            if not ag or ag.owner != fid:
+                err = "agente inexistente ou de outra fação"
+            elif ag.id in used_agents:
+                err = "este agente já tem uma ordem"
+            else:
+                limit = rules.scout_steps if ag.kind == "scout" else rules.spy_steps
+                path, here, steps = o.get("path") or [], ag.region, 0
+                for dst in path:
+                    c = agent_step_cost(world, here, dst) if dst in state.regions else None
+                    if c is None:
+                        err = f"região {dst} não é vizinha por terra de {here}"
+                        break
+                    steps += c
+                    here = dst
+                if not err and (not path or steps > limit):
+                    err = "caminho vazio ou longo demais"
+                if not err:
+                    used_agents.add(ag.id)
 
         elif t == "posture":
             other = o.get("faction")

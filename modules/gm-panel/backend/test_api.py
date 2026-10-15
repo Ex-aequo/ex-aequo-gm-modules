@@ -61,5 +61,27 @@ class SandboxApiTests(unittest.TestCase):
         self.assertEqual(self.c.get("/api/region/999999").status_code, 404)
 
 
+    def test_player_view_hides_unknown(self):
+        state = self.c.get("/api/state").json()
+        fid = next(f["id"] for f in state["factions"] if f["active"])
+        v = self.c.get(f"/api/view/{fid}").json()
+        self.assertEqual(len(v["owner"]), len(state["owner"]))
+        unknown = [rid for rid in range(1, len(v["fog"])) if v["fog"][rid] == 0]
+        self.assertTrue(unknown, "no início quase tudo é desconhecido")
+        self.assertTrue(all(v["owner"][r] == 0 and v["plague"][r] == 0 for r in unknown))
+        self.assertTrue(set(map(int, v["regions"])) == {r for r in range(1, len(v["fog"])) if v["fog"][r] > 0})
+        self.assertEqual(self.c.get("/api/view/99999").status_code, 404)
+
+    def test_gm_rumour_reaches_player(self):
+        state = self.c.get("/api/state").json()
+        fid = next(f["id"] for f in state["factions"] if f["active"])
+        r = self.c.post("/api/gm/orders", json={"type": "rumor", "text": "Viu-se fumo no horizonte.", "factions": [fid]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.c.post("/api/gm/orders", json={"type": "rumor", "text": ""}).status_code, 400)
+        self.c.post("/api/turn")
+        inbox = self.c.get(f"/api/view/{fid}").json()["inbox"]
+        self.assertIn("Viu-se fumo no horizonte.", [m["text"] for m in inbox if m["kind"] == "gm"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,4 @@
-# Praga — Regras núcleo (rascunho v0.4)
+# Praga — Regras núcleo (rascunho v0.5)
 
 **Estado:** rascunho para discussão. Nada aqui é final até ser marcado ✅.
 
@@ -109,6 +109,8 @@ Sete ordens, de propósito. Cada ordem gasta **pontos de comando (PC)**.
 | **Construir** | região | fortificação, edifício de produção, ou subir um nível (§3.2); demora vários turnos | 1 |
 | **Recrutar** | região | novos homens; baixa a população e a ordem pública | 1 |
 | **Postura** | fação | declarar a outra fação: Aliado / Neutro / Hostil (como no Atlantis) | 0 |
+| **Recrutar agente** | região | um batedor ou um espião (§8.2) | 1 |
+| **Mover agente** | agente | batedor até 2 regiões, espião 1; só por terra; pode entrar em qualquer região | 1 |
 
 As **mensagens entre jogadores** são livres e não passam pela resolução.
 
@@ -123,12 +125,14 @@ gerir tudo, e a periferia esquecida é onde a Praga entra (§6).
 1. **Diplomacia** — as posturas novas valem para este turno.
 2. **Economia** — produção automática dos quatro recursos, manutenção de edifícios e exércitos. Exército sem comida perde 10% dos homens.
 3. **Movimento** — simultâneo, um passo de cada vez. Dois exércitos hostis que se cruzam numa fronteira param e combatem.
+   Os agentes movem-se ao mesmo tempo que os exércitos.
 4. **Combate** — por região, todos os hostis presentes. O defensor soma terreno, fortificação, rio e Guarnecer.
 5. **Conquista** — se o atacante vence e não sobram defensores, a região muda de dono com ordem pública 0
    (sem rendimento durante 2 turnos).
-6. **Construção e recrutamento.**
+   Depois: batedores numa região com exército não aliado são apanhados; espiões podem ser descobertos (§8.2).
+6. **Construção e recrutamento** (também de agentes).
 7. **Praga** — purga (sempre) → recuo/crescimento → alastramento → colapso → crias (só com a Praga ativa).
-8. **Eventos** — ponto de ligação para o módulo de mestre de jogo e narrativa.
+8. **Visão e rumores** — cada fação tira fotografias do que vê agora; quem não vê a Praga ouve rumores (§8).
 9. **Relatórios.**
 
 A Praga resolve-se **depois** da guerra de propósito: uma região que acabou de ser conquistada, sem ordem pública
@@ -201,7 +205,44 @@ de forma permanente: 30 turnos ligada e 30 desligada levam a ~70% do mapa perdid
   tornam-se alvo natural da Praga (surtos em regiões negligenciadas, §6). O mundo recupera o espaço sem intervenção do GM.
   O número exato é decisão tua.
 
-## 8. Fim e vitória ✅
+## 8. Nevoeiro de guerra ✅ (v0.5)
+
+✅ Os jogadores só conhecem o que viram. A geografia revela-se à medida que exploram (decisão C); o que foi visto fica
+no mapa como **fotografia com data**, e só o que se vê agora está ao vivo.
+
+### 8.1 Níveis de visão
+
+| Nível | Quando | O que se vê |
+|---|---|---|
+| **Desconhecida** | nunca vista | nada: pergaminho por desenhar |
+| **Conhecida** | foi vista alguma vez | geografia + última fotografia: dono, estado da Praga, fortificação, edifício, exércitos por tamanho, e o turno em que foi vista |
+| **Visível** | é vizinha por terra de uma região tua, ou tem um exército teu, um batedor teu, ou foi atacada por ti este turno; um batedor vê também as regiões por onde passou | o mesmo, ao vivo; exércitos por tamanho (pequena < 150, média < 400, grande < 1000, enorme) |
+| **Espiada** | tem um espião teu | tudo ao detalhe: homens e veterania exatos, guarnição, população, ordem pública, Praga exata, obras |
+| **Tua** | é tua | tudo |
+
+✅ Vizinhos por mar **não** dão visão: um desembarque sem batedor é às cegas.
+Uma região que perdes fica conhecida, com a fotografia do turno em que a perdeste.
+
+O servidor envia a cada jogador só o que ele sabe (a vista é construída a partir das fotografias, nunca do estado
+completo). Há um teste que muda tudo o que um jogador não vê e verifica que a vista dele não muda.
+
+### 8.2 Batedores e espiões 🟡 (ponto de partida)
+
+| | Custo | Manutenção | Movimento | Risco |
+|---|---|---|---|---|
+| **Batedor** | 5 ouro + 1 ferro | 1 ouro/turno | 2 regiões (difícil = 2) | apanhado se acabar o turno numa região com um exército não aliado |
+| **Espião** | 40 ouro | 3 ouro/turno | 1 região | 10 % por turno de ser descoberto numa região que não é tua, +10 % por nível de fortificação |
+
+Não combatem nem conquistam. Quem apanha um espião sabe de quem ele era (gancho para diplomacia e narrativa).
+
+### 8.3 Rumores ✅
+
+Quem não vê o que a Praga faz ouve rumores: direção (8 pontos cardeais) e distância vaga ("perto das tuas fronteiras",
+"a alguns dias de marcha", "em terras distantes"), até 10 regiões de distância. Nunca o nome da região.
+No máximo 2 rumores por turno e por fação; o mesmo rumor (tipo + direção) não se repete durante 4 turnos.
+O GM pode enviar os seus próprios rumores — verdadeiros ou falsos — a uma fação ou a todas as fações perto de uma região.
+
+## 9. Fim e vitória ✅
 
 ✅ **Sem objetivo formal.** Cada jogador define os seus objetivos, como no Atlantis puro. O mundo não acaba nem reinicia.
 
@@ -209,19 +250,22 @@ de forma permanente: 30 turnos ligada e 30 desligada levam a ~70% do mapa perdid
 primeiros meses de jogo real, vigiar dois sinais: abandono crescente de jogadores veteranos e um mapa que deixa de
 mudar. Se aparecerem, rever esta decisão (por exemplo, com Eras de prestígio sem reinício).
 
-## 9. Fora da v0.1, de propósito
+## 10. Fora da v0.1, de propósito
 
-Tecnologia, vários tipos de tropa, combate naval, comércio formal entre jogadores, espionagem e personagens/heróis.
+Tecnologia, vários tipos de tropa, combate naval, comércio formal entre jogadores, sabotagem e personagens/heróis.
 Cada um destes entra só se a simulação mostrar que o núcleo funciona e que falta exatamente isso.
 
-## 10. Decisões
+## 11. Decisões
 
 **Tomadas (2026-10-15):** quatro recursos com produção automática e infraestruturas com níveis (§3);
 ferro obrigatório para recrutar, garantido no arranque (§3.1); Praga nasce de vários focos afastados das capitais e de
-regiões negligenciadas (§6); recuo da Praga em regiões bem governadas (§6); sem objetivo formal de fim (§8).
+regiões negligenciadas (§6); recuo da Praga em regiões bem governadas (§6); sem objetivo formal de fim (§9).
 
 **v0.4:** a Praga pode consumir o mundo; é um evento ligado e desligado pelo GM, que também abre focos e escolhe a
 intensidade; o GM não joga no mesmo mundo (§6.1).
+
+**v0.5:** nevoeiro de guerra com geografia revelada por exploração, fotografias com data separadas da visão ao vivo,
+vizinhos por mar não dão visão, batedores e espiões (valores de partida), rumores da Praga e rumores do GM (§8).
 
 **Ainda em aberto:**
 

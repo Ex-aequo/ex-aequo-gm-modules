@@ -143,3 +143,14 @@ table.factions { width: 100%; border-collapse: collapse; font-size: 13px; }
   .panel { grid-column: 1; grid-row: 2; border-left: none; border-top: 1px solid #000; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* vista de jogador e rumores (§8) */
+.banner.view { border-left: 4px solid var(--rule); }
+.card select { max-width: 100%; }
+.card textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; margin: 6px 0 8px;
+  font: inherit; font-size: 14px; padding: 6px 8px; background: #fffaf0; color: inherit;
+  border: 1px solid var(--rule); border-radius: 2px;
+}
+.player .region { margin: 8px 0; }
+.player h3 { margin-top: 12px; }

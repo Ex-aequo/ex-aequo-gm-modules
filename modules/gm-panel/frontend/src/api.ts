@@ -1,4 +1,4 @@
-import type { GameState, GMOrder, Preview, RegionDetail } from "./types";
+import type { GameState, GMOrder, PlayerView, Preview, RegionDetail } from "./types";
 
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -22,6 +22,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 export const api = {
   state: () => call<GameState>("GET", "/api/state"),
   region: (id: number) => call<RegionDetail>("GET", `/api/region/${id}`),
+  view: (fid: number) => call<PlayerView>("GET", `/api/view/${fid}`),
   addOrder: (o: GMOrder) => call<{ pending: GMOrder[] }>("POST", "/api/gm/orders", o),
   removeOrder: (i: number) => call<{ pending: GMOrder[] }>("DELETE", `/api/gm/orders/${i}`),
   resolve: () => call<GameState>("POST", "/api/turn"),

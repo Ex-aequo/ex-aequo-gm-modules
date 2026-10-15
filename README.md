@@ -10,9 +10,9 @@ da mesma coisa (o primeiro caso: `map-renderer`).
 | Módulo | Estado | O que faz |
 |---|---|---|
 | [world-map](modules/world-map/) | protótipo | Gerador de mundos: continentes, ilhas e mares à escolha, 25–150 reinos equilibrados, clima e nomes do Azgaar, base pintada determinística |
-| [turn-engine](modules/turn-engine/) | protótipo | Motor de turnos determinístico (regras v0.4), ordens de GM, bots e simulação com políticas de GM |
+| [turn-engine](modules/turn-engine/) | protótipo | Motor de turnos determinístico (regras v0.5): nevoeiro de guerra, batedores, espiões, rumores, ordens de GM, bots e simulação |
 | [map-renderer](modules/map-renderer/) | protótipo | Renderizador partilhado do mapa (WebGL2), usado pela demo do mapa e pelo painel do GM |
-| [gm-panel](modules/gm-panel/) | protótipo | Painel do mestre de jogo em modo sandbox: FastAPI + React, controlo da Praga, pré-visualização de turnos |
+| [gm-panel](modules/gm-panel/) | protótipo | Painel do mestre de jogo em modo sandbox: FastAPI + React, controlo da Praga, rumores, pré-visualização, ver como jogador |
 
 ## Convenções
 
@@ -20,7 +20,7 @@ da mesma coisa (o primeiro caso: `map-renderer`).
   (por exemplo, `modules/world-map/worlds/*.toml`). Um mundo "oficial" congelado publica-se como release.
 - **Sem IA generativa para assets.** O visual sai de código, dados e ferramentas determinísticas.
 - Decisões de arquitetura registam-se em [docs/decisoes.md](docs/decisoes.md).
-- Regras do jogo Praga (rascunho): [docs/regras-nucleo.md](docs/regras-nucleo.md). Resultados da simulação: [v0.2](docs/simulacao-v0.2.md), [v0.3](docs/simulacao-v0.3.md), [v0.4](docs/simulacao-v0.4.md).
+- Regras do jogo Praga (rascunho): [docs/regras-nucleo.md](docs/regras-nucleo.md). Resultados da simulação: [v0.2](docs/simulacao-v0.2.md), [v0.3](docs/simulacao-v0.3.md), [v0.4](docs/simulacao-v0.4.md), [v0.5 — nevoeiro](docs/simulacao-v0.5.md).
 
 ## Licença
 

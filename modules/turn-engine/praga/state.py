@@ -124,6 +124,15 @@ class Army:
 
 
 @dataclass
+class Agent:
+    """Batedor ("scout") ou espião ("spy"): não combate; serve para ver (§8)."""
+    id: int
+    owner: int
+    kind: str
+    region: int
+
+
+@dataclass
 class Faction:
     id: int
     name: str
@@ -150,6 +159,12 @@ class GameState:
     foci: list = field(default_factory=list)   # sugestões de focos para o GM (não ativos no arranque)
     plague_active: bool = False     # a Praga começa adormecida; só o GM a desperta (§6.1)
     plague_intensity: str = "normal"
+    # §8 visão: o que cada fação vê agora, o que já viu (fotografias com o turno) e a sua caixa de mensagens
+    agents: dict[int, Agent] = field(default_factory=dict)
+    next_agent: int = 1
+    vision: dict[int, dict[int, int]] = field(default_factory=dict)     # fação -> região -> nível (2..4)
+    known: dict[int, dict[int, dict]] = field(default_factory=dict)     # fação -> região -> fotografia
+    inbox: dict[int, list[dict]] = field(default_factory=dict)          # fação -> [{turn, kind, text}]
 
     # ---------------------------------------------------------------- serialização determinística
     def to_dict(self) -> dict:
@@ -159,6 +174,11 @@ class GameState:
             "regions": {str(k): asdict(v) for k, v in sorted(self.regions.items())},
             "armies": {str(k): asdict(v) for k, v in sorted(self.armies.items())},
             "factions": {str(k): asdict(v) for k, v in sorted(self.factions.items())},
+            "agents": {str(k): asdict(v) for k, v in sorted(self.agents.items())},
+            "next_agent": self.next_agent,
+            "vision": {str(f): {str(r): lvl for r, lvl in sorted(v.items())} for f, v in sorted(self.vision.items())},
+            "known": {str(f): {str(r): snap for r, snap in sorted(v.items())} for f, v in sorted(self.known.items())},
+            "inbox": {str(f): v for f, v in sorted(self.inbox.items())},
         }
 
     @classmethod
@@ -169,6 +189,11 @@ class GameState:
             regions={int(k): Region(**v) for k, v in d["regions"].items()},
             armies={int(k): Army(**v) for k, v in d["armies"].items()},
             factions={int(k): Faction(**v) for k, v in d["factions"].items()},
+            agents={int(k): Agent(**v) for k, v in d.get("agents", {}).items()},
+            next_agent=d.get("next_agent", 1),
+            vision={int(f): {int(r): lvl for r, lvl in v.items()} for f, v in d.get("vision", {}).items()},
+            known={int(f): {int(r): snap for r, snap in v.items()} for f, v in d.get("known", {}).items()},
+            inbox={int(f): list(v) for f, v in d.get("inbox", {}).items()},
         )
 
     def digest(self) -> str:
@@ -183,6 +208,9 @@ class GameState:
 
     def armies_of(self, fid: int) -> list[Army]:
         return [a for _, a in sorted(self.armies.items()) if a.owner == fid]
+
+    def agents_of(self, fid: int) -> list[Agent]:
+        return [a for _, a in sorted(self.agents.items()) if a.owner == fid]
 
     def command_points(self, fid: int, rules: Rules) -> int:
         n = len(self.regions_of(fid))
@@ -268,8 +296,11 @@ def new_game(world: WorldMap, rules: Rules, start: str | None = None, rng_seed: 
 
     # A Praga começa adormecida e sem focos: o GM decide quando e onde ela desperta (§6.1).
     foci = place_foci(world, list(capitals.values()), rules)
-    return GameState(turn=1, regions=regions, armies=armies, factions=factions, next_army=next_army,
-                     rng_seed=rng_seed, foci=foci)
+    state = GameState(turn=1, regions=regions, armies=armies, factions=factions, next_army=next_army,
+                      rng_seed=rng_seed, foci=foci)
+    from .vision import update_vision
+    update_vision(state, world, rules)
+    return state
 
 
 def _start_regions(world: WorldMap, regions: dict[int, Region], cap: int) -> list[int]:

@@ -17,7 +17,13 @@ A API foi desenhada para passar a ser a do servidor real: a lógica está em `ba
   substitui a anterior. Abrir um foco com a Praga adormecida acrescenta "Despertar" automaticamente.
 - **Pré-visualização:** simula 5–30 turnos numa cópia do mundo, com as ordens pendentes, e mostra o resultado no mapa.
   Com bots é exata (o mesmo que vai acontecer ao resolver); com jogadores reais será uma estimativa.
-- **Região:** clicar numa região mostra dono, Praga, população, ordem pública, fortificação, edifício e exércitos.
+- **Região:** clicar numa região mostra dono, Praga, população, ordem pública, fortificação, edifício, exércitos e agentes.
+- **Ver como jogador:** escolhe uma fação e o mapa passa a mostrar só o que ela sabe (nevoeiro, regras §8): pergaminho
+  onde nunca esteve, tons lavados onde só tem uma fotografia antiga. O cartão mostra o mapa conhecido, os agentes, a
+  caixa de mensagens (rumores e relatórios) e o que a fação sabe da região clicada. Os dados vêm do mesmo
+  `player_view` que o servidor real vai enviar a cada jogador.
+- **Rumores:** o GM escreve um rumor (verdadeiro ou falso) para uma fação ou para todas as fações perto de uma região;
+  chega no próximo turno como mensagem, igual aos rumores automáticos.
 - **Fações** (regiões, crescimento nos últimos 10 turnos, homens) e **crónica** pública turno a turno.
 
 Cada turno resolvido fica em `build/sandbox/turns/state_NNNN.json` (histórico completo; o sandbox retoma onde ficou).
@@ -44,7 +50,8 @@ Testes da API: `python -m unittest backend.test_api` (a partir de `modules/gm-pa
 |---|---|---|
 | GET | `/api/state` | estado atual, ordens pendentes, histórico, crónica |
 | GET | `/api/region/{id}` | detalhe de uma região |
-| POST | `/api/gm/orders` | acrescenta uma ordem do GM (`plague_state`, `plague_focus`, `plague_intensity`); 400 com a razão se for inválida |
+| GET | `/api/view/{fação}` | vista de um jogador: só o que essa fação sabe, mais as tabelas do mapa com nevoeiro |
+| POST | `/api/gm/orders` | acrescenta uma ordem do GM (`plague_state`, `plague_focus`, `plague_intensity`, `rumor`); 400 com a razão se for inválida |
 | DELETE | `/api/gm/orders/{i}` | retira a ordem `i` da fila |
 | POST | `/api/turn` | resolve o turno (bots + ordens do GM) |
 | POST | `/api/preview` | `{"turns": 10}` → estado previsto, série de métricas, regiões que caem, fações atingidas |
@@ -55,4 +62,5 @@ Testes da API: `python -m unittest backend.test_api` (a partir de `modules/gm-pa
 - Local e sem autenticação. Não expor na internet tal como está.
 - Um só GM e um só mundo por servidor.
 - As fações são bots; não há jogadores humanos nem relógio de 48 h.
+- O mapa (`/data`) tem o mundo inteiro. No sandbox não faz mal; no jogo real tem de ser servido por jogador.
 - A pré-visualização corre no servidor (~15 ms por turno); 30 turnos demoram cerca de meio segundo.

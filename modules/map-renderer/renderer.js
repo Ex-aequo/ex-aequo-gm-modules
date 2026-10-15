@@ -9,6 +9,7 @@
 //   const map = await createMapRenderer({ canvas, overlay, dataUrl: "data" });
 //   map.setFactions([{ id, name, color }]);
 //   map.setState({ owner, plague });          // arrays indexados pelo id da região (owner -1 = Praga)
+//   map.setState({ owner, plague, fog });     // nevoeiro: 0 desconhecida, 1 conhecida, 2 visível, 3 espiada/própria
 //   map.on("click", (regionId) => ...);
 
 export const PRAGA = -1;
@@ -75,12 +76,12 @@ precision highp float;
 precision highp int;
 uniform sampler2D uBase;
 uniform sampler2D uRegion;   // IDs de região (nearest)
-uniform sampler2D uRegLut;   // por região: rg = dono, b = praga
+uniform sampler2D uRegLut;   // por região: rg = dono, b = praga, a = visão (0 desconhecida, .5 conhecida, 1 visível)
 uniform sampler2D uFacLut;   // por fação: cor
 uniform vec2 uCam, uRes, uWorld;
 uniform float uZoom, uDpr, uScale, uTime;
 uniform int uHover, uSelected;
-uniform bool uBorders, uPlague;
+uniform bool uBorders, uPlague, uFog;
 out vec4 outColor;
 
 int regionAt(vec2 w) {
@@ -115,6 +116,26 @@ void main() {
 
   vec3 col = texture(uBase, w / uWorld).rgb;
   int id = regionAt(w);
+
+  // --- nevoeiro: campo suave a partir da visão das regiões à volta (a água herda das terras próximas)
+  float fog = 1.0;
+  if (uFog) {
+    float fs = 0.0, fwt = 0.0;
+    if (id > 0) { fs = regInfo(id).a * 4.0; fwt = 4.0; }
+    float fj = vnoise(w * 0.15) * 1.57;          // rotação contínua: sem blocos na orla do nevoeiro
+    for (int ri = 0; ri < 3; ri++) {
+      float R = ri == 0 ? 6.0 : ri == 1 ? 14.0 : 26.0;
+      for (int k = 0; k < 8; k++) {
+        float a = float(k) * 0.7854 + fj + float(ri) * 0.39;
+        int j = regionAt(w + vec2(cos(a), sin(a)) * R);
+        if (j == 0) continue;
+        float wt = ri == 0 ? 1.0 : ri == 1 ? 0.6 : 0.3;
+        fs += regInfo(j).a * wt; fwt += wt;
+      }
+    }
+    fog = fwt > 0.0 ? fs / fwt : 0.0;
+    if (id > 0) fog = mix(fog, regInfo(id).a, 0.5);
+  }
 
   if (id > 0) {
     int own = ownerOf(id);
@@ -214,6 +235,18 @@ void main() {
       }
     }
   }
+  if (uFog) {
+    // conhecida: tons lavados (fotografia antiga); desconhecida: pergaminho por desenhar
+    float lum = dot(col, vec3(0.3, 0.55, 0.15));
+    vec3 faded = mix(col, vec3(lum) * vec3(1.05, 1.0, 0.9), 0.55) * 0.92 + 0.06;
+    col = mix(faded, col, smoothstep(0.6, 0.9, fog));
+    float n = fbm(w * 0.012) * 0.6 + fbm(w * 0.09) * 0.4;
+    vec3 parchment = vec3(0.83, 0.77, 0.63) * (0.86 + 0.22 * n);
+    float hatch = smoothstep(0.92, 1.0, abs(fract((w.x + w.y) * 0.12) * 2.0 - 1.0)) * 0.05;
+    parchment -= hatch;
+    float edge = smoothstep(0.08, 0.32, fog + (n - 0.5) * 0.18);
+    col = mix(parchment, col, edge);
+  }
   outColor = vec4(col, 1.0);
 }`;
 
@@ -269,7 +302,7 @@ void main() {
 
   const U = Object.fromEntries(
     ["uBase", "uRegion", "uRegLut", "uFacLut", "uCam", "uRes", "uWorld", "uZoom", "uDpr", "uScale", "uTime",
-      "uHover", "uSelected", "uBorders", "uPlague"].map((n) => [n, gl.getUniformLocation(prog, n)])
+      "uHover", "uSelected", "uBorders", "uPlague", "uFog"].map((n) => [n, gl.getUniformLocation(prog, n)])
   );
   gl.uniform1i(U.uBase, 0);
   gl.uniform1i(U.uRegion, 1);
@@ -281,6 +314,8 @@ void main() {
   // ------------------------------------------------------------------ estado mostrado
   const owner = new Int32Array(NREG + 1);
   const plague = new Float32Array(NREG + 1);
+  const fogLevel = new Uint8Array(NREG + 1).fill(2);   // sem nevoeiro: tudo visível
+  let fogOn = false;
   for (const r of regions) owner[r.id] = r.owner;
   const factionById = new Map();
 
@@ -299,7 +334,7 @@ void main() {
       regLut[id * 4] = o & 255;
       regLut[id * 4 + 1] = o >> 8;
       regLut[id * 4 + 2] = Math.round(Math.max(0, Math.min(1, plague[id])) * 255);
-      regLut[id * 4 + 3] = 255;
+      regLut[id * 4 + 3] = fogLevel[id] === 0 ? 0 : fogLevel[id] === 1 ? 128 : 255;
     }
     gl.activeTexture(gl.TEXTURE2);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, LUT_W, LUT_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, regLut);
@@ -435,8 +470,33 @@ void main() {
   }
 
   // ------------------------------------------------------------------ overlay 2D
-  const riverPaths = world.rivers.map((r) => ({ ...r, pts: chaikin(r.pts, 3) }));
-  const roadPaths = world.roads.map((r) => chaikin(r, 2));
+  const riverPaths = world.rivers.map((r) => {
+    const pts = chaikin(r.pts, 3);
+    return { ...r, pts, reg: pts.map(([x, y]) => regionAt(x, y)) };
+  });
+  const roadPaths = world.roads.map((r) => {
+    const pts = chaikin(r, 2);
+    return Object.assign(pts, { reg: pts.map(([x, y]) => regionAt(x, y)) });
+  });
+  // com nevoeiro, só se desenha o que está em regiões conhecidas (um ponto na água conta como conhecido)
+  const knownAt = (rid) => !fogOn || rid === 0 || fogLevel[rid] >= 1;
+  function strokeKnown(pts, reg) {
+    // pontos na água (rotas marítimas, foz dos rios): conhecidos só se a terra antes e depois no traçado o for
+    const n = pts.length, prev = new Array(n), next = new Array(n), ok = new Array(n);
+    let f = null;
+    for (let i = 0; i < n; i++) { if (reg[i]) f = knownAt(reg[i]); prev[i] = f; }
+    f = null;
+    for (let i = n - 1; i >= 0; i--) { if (reg[i]) f = knownAt(reg[i]); next[i] = f; }
+    for (let i = 0; i < n; i++) ok[i] = reg[i] ? knownAt(reg[i]) : !!((prev[i] ?? next[i]) && (next[i] ?? prev[i]));
+    let open = false;
+    ov.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      if (!fogOn || ok[i]) {
+        if (open) ov.lineTo(pts[i][0], pts[i][1]); else { ov.moveTo(pts[i][0], pts[i][1]); open = true; }
+      } else open = false;
+    }
+    ov.stroke();
+  }
   const MARKER = {
     suggestion: { stroke: "rgba(165, 209, 79, .95)", fill: "rgba(165, 209, 79, .18)", dash: [4, 3] },
     pending: { stroke: "rgba(107, 47, 110, 1)", fill: "rgba(165, 209, 79, .55)", dash: [] },
@@ -455,22 +515,17 @@ void main() {
       ov.strokeStyle = "rgba(52, 92, 112, 0.85)";
       for (const r of riverPaths) {
         ov.lineWidth = Math.max(0.6 / z, r.w * 0.55);
-        ov.beginPath(); ov.moveTo(r.pts[0][0], r.pts[0][1]);
-        for (let i = 1; i < r.pts.length; i++) ov.lineTo(r.pts[i][0], r.pts[i][1]);
-        ov.stroke();
+        strokeKnown(r.pts, r.reg);
       }
       ov.setLineDash([3 / z, 3 / z]);
       ov.strokeStyle = "rgba(92, 60, 34, 0.55)";
       ov.lineWidth = 1 / z;
-      for (const r of roadPaths) {
-        ov.beginPath(); ov.moveTo(r[0][0], r[0][1]);
-        for (let i = 1; i < r.length; i++) ov.lineTo(r[i][0], r[i][1]);
-        ov.stroke();
-      }
+      for (const r of roadPaths) strokeKnown(r, r.reg);
       ov.setLineDash([]);
     }
     const showTowns = z > 1.6;
     for (const b of world.burgs) {
+      if (!knownAt(b.region)) continue;
       if (!b.capital && !showTowns) continue;
       if (!b.capital && b.pop < 8 / Math.max(1, z - 1)) continue;
       const r = (b.capital ? 3.2 : 1.8) / z;
@@ -501,6 +556,7 @@ void main() {
     ov.textAlign = "center"; ov.textBaseline = "middle";
     if (z > 1.1) {
       for (const b of world.burgs) {
+        if (!knownAt(b.region)) continue;
         if (!b.capital && (!showTowns || b.pop < 8 / Math.max(1, z - 1))) continue;
         if (!b.capital && z < 2.4) continue;
         const x = sx(b.x), y = sy(b.y) - (b.capital ? 11 : 9);
@@ -553,6 +609,7 @@ void main() {
     gl.uniform1i(U.uSelected, ui.selected);
     gl.uniform1i(U.uBorders, ui.borders ? 1 : 0);
     gl.uniform1i(U.uPlague, ui.plague ? 1 : 0);
+    gl.uniform1i(U.uFog, fogOn ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     if (overlayDirty) { drawOverlay(); overlayDirty = false; }
     const anyPlague = plague.some((p) => p > 0);
@@ -569,6 +626,7 @@ void main() {
 
   return {
     world, regionAt, camera: cam, fit, focusOn, zoomAt,
+    fogAt: (id) => (fogOn ? fogLevel[id] ?? 0 : 2),
     setFactions(list) {
       factionById.clear();
       for (const f of list) factionById.set(f.id, f);
@@ -577,6 +635,10 @@ void main() {
     setState(next) {
       if (next.owner) for (let id = 1; id <= NREG; id++) owner[id] = next.owner[id] ?? 0;
       if (next.plague) for (let id = 1; id <= NREG; id++) plague[id] = next.plague[id] ?? 0;
+      if ("fog" in next) {
+        fogOn = !!next.fog;
+        for (let id = 1; id <= NREG; id++) fogLevel[id] = fogOn ? (next.fog[id] ?? 0) : 2;
+      }
       uploadState(); computeLabels(); requestRedraw(true);
     },
     setOptions(opts) { Object.assign(ui, opts); requestRedraw(true); },

@@ -1,4 +1,4 @@
-"""Constantes das regras núcleo (docs/regras-nucleo.md, v0.2).
+"""Constantes das regras núcleo (docs/regras-nucleo.md, v0.5).
 
 Todos os números são valores iniciais, a calibrar na simulação. Cada um aponta para a secção do documento.
 """
@@ -15,7 +15,8 @@ class Rules:
     pc_base: int = 4
     pc_per_sqrt_region: float = 2.0
     move_steps: int = 2                  # regiões por Mover; terreno difícil custa 2
-    order_cost = {"move": 1, "attack": 1, "garrison": 0, "purge": 1, "build": 1, "recruit": 1, "posture": 0}
+    order_cost = {"move": 1, "attack": 1, "garrison": 0, "purge": 1, "build": 1, "recruit": 1, "posture": 0,
+                  "recruit_agent": 1, "agent_move": 1}
 
     # §3.1 economia
     gold_base: float = 1.0
@@ -79,6 +80,18 @@ class Rules:
     foci_neighbor_plague: int = 30
     # v0.4: a Praga é um evento do GM (§6.1). Intensidade multiplica crescimento, alastramento, surtos e crias.
     plague_intensities = {"weak": 0.5, "normal": 1.0, "strong": 1.5}
+
+    # §8 visão, batedores e espiões (v0.5)
+    scout_cost = {"gold": 5, "iron": 1}
+    spy_cost = {"gold": 40}
+    scout_upkeep: float = 1.0            # ouro por turno
+    spy_upkeep: float = 3.0
+    scout_steps: int = 2                 # regiões por turno; terreno difícil custa 2; só por terra
+    spy_steps: int = 1
+    spy_catch_base: float = 0.10         # por turno, numa região que não é tua
+    spy_catch_per_fort: float = 0.10     # por nível de fortificação
+    rumour_radius: int = 10              # regiões (por terra) até onde chegam rumores da Praga
+    inbox_keep: int = 40                 # mensagens guardadas por fação (rumores e relatórios)
 
     # §7 entrada e abandono
     protection_turns: int = 5

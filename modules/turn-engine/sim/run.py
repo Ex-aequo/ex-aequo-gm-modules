@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from praga import DEFAULT, FREE, PRAGA, WorldMap, add_faction, new_game, plague_strength, resolve_turn
+from praga.vision import first_contact
 from praga.bots import STYLES, bot_orders
 from praga.state import land_distances
 
@@ -98,6 +99,7 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=g
                                                for r in state.regions_of(fid))]
     next_new, total = 100, len(state.regions)
     history, event_log = [], []
+    contact: dict[int, int] = {}                       # fação -> turno do primeiro contacto (§8)
 
     for _ in range(turns):
         turn = state.turn
@@ -113,8 +115,12 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=g
         state, events = resolve_turn(state, world, rules, orders, gm(state, world, rules, total))
         kinds = Counter(e[0] for e in events)
         event_log += [(turn, *e) for e in events if e[0] in ("dissolve", "regency", "eliminated", "gm")]
+        for fid in fids:
+            if fid not in contact and fid in state.known and first_contact(state, fid):
+                contact[fid] = turn
         owners = Counter(r.owner for r in state.regions.values())
         sizes = [owners.get(f.id, 0) for f in state.factions.values() if f.active]
+        act = [f for f in fids if state.factions[f].active and f in state.known]
         history.append({
             "turn": turn,
             "lost": owners.get(PRAGA, 0) / total,
@@ -125,11 +131,15 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=g
             "strength": plague_strength(state, rules), "active_plague": state.plague_active,
             "conquests": kinds["conquest"], "lost_regions": kinds["lost"], "outbreaks": kinds["outbreak"],
             "rejected": sum(e[2] for e in events if e[0] == "rejected"),
+            "known": statistics.mean(len(state.known[f]) / total for f in act) if act else 0,
+            "scouts_lost": kinds["scout_lost"],
+            "rumours": sum(1 for f in fids for m in state.inbox.get(f, []) if m["turn"] == turn and m["kind"] == "rumour"),
         })
 
     played = [f for f in fids if f not in abandon]
     survived = {f: len(state.regions_of(f)) > 0 for f in played}
     return {
+        "contact": {fid: contact.get(fid) for fid in fids},
         "rng_seed": rng_seed, "digest": state.digest(), "foci": state.foci, "no_iron_at_start": no_iron,
         "history": history, "events": event_log,
         "near": [survived[f] for f in played if start_dist[f] <= NEAR],
@@ -187,6 +197,21 @@ def main():
           f" = {sum(near) / max(1, len(near)):.0%} · longe {sum(far)}/{len(far)} = {sum(far) / max(1, len(far)):.0%}")
     minlost = min(min(h["lost"] for h in r["history"][50:]) for r in runs) if args.turns > 50 else None
     print(f"mínimo da Praga depois do turno 50: {minlost:.1%}" if minlost is not None else "")
+    # nevoeiro (§8): quando é que cada fação encontra outra, quanto do mapa conhece, rumores
+    turns_c = [t for r in runs for t in r["contact"].values() if t is not None]
+    never = sum(1 for r in runs for t in r["contact"].values() if t is None)
+    n_f = sum(len(r["contact"]) for r in runs)
+    if turns_c:
+        q = statistics.quantiles(turns_c, n=10) if len(turns_c) > 1 else [turns_c[0]] * 9
+        print(f"primeiro contacto: mediana turno {statistics.median(turns_c):.0f} · 90 % até ao turno {q[8]:.0f}"
+              f" · sem contacto ao fim: {never}/{n_f}")
+    for t in (10, 25, 50, 100):
+        if t <= args.turns:
+            hs = [r["history"][t - 1] for r in runs]
+            print(f"  turno {t:3d}: mapa conhecido por fação (média) {statistics.mean(h['known'] for h in hs):.1%}"
+                  f" · rumores no turno {statistics.mean(h['rumours'] for h in hs):.1f}")
+    lost_sc = sum(h["scouts_lost"] for r in runs for h in r["history"])
+    print(f"batedores perdidos: {lost_sc / len(runs):.0f} por corrida")
     on = [statistics.mean(h["active_plague"] for h in r["history"]) for r in runs]
     print(f"Praga ativa em {statistics.mean(on):.0%} dos turnos · crónica do GM (seed 0):",
           [(e[0], e[3]) for e in runs[0]["events"] if e[1] == "gm"][:8])

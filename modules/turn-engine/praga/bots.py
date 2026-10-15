@@ -5,12 +5,14 @@ Estilos:
   builder      — constrói e sobe edifícios, só expande para Terras Livres
   defender     — fortifica, purga a Praga, raramente ataca
 Cada bot submete ordens válidas pela ordem de prioridade até gastar os pontos de comando.
+Nevoeiro (§8): os bots só escolhem alvos que a fação vê agora, e mantêm batedores a explorar o desconhecido.
+Não usam espiões.
 """
 from __future__ import annotations
 
 import random
 
-from .orders import move_cost, validate
+from .orders import agent_step_cost, move_cost, validate
 from .rules import BUILDINGS, FREE, PRAGA, Rules
 from .state import GameState, WorldMap
 
@@ -65,6 +67,9 @@ def bot_orders(state: GameState, world: WorldMap, rules: Rules, fid: int, style:
             return True
         return False
 
+    vis = state.vision.get(fid, {})
+    known = state.known.get(fid, {})
+
     # --- exércitos
     for a in state.armies_of(fid):
         r = state.regions[a.region]
@@ -75,7 +80,7 @@ def bot_orders(state: GameState, world: WorldMap, rules: Rules, fid: int, style:
         targets = []
         for n in world.regions[a.region].neighbors + world.regions[a.region].sea_links:
             nr = state.regions[n]
-            if nr.owner == fid or move_cost(world, a.region, n) is None:
+            if nr.owner == fid or move_cost(world, a.region, n) is None or n not in vis:
                 continue
             defense = _strength_at(state, n, fid)
             if nr.owner == FREE:
@@ -122,6 +127,25 @@ def bot_orders(state: GameState, world: WorldMap, rules: Rules, fid: int, style:
                 orders.append({"type": "move", "army": a.id, "path": take})
                 continue
         orders.append({"type": "garrison", "army": a.id})
+
+    # --- batedores: andam para onde há mais vizinhos desconhecidos, evitando exércitos estrangeiros vistos
+    for g in state.agents_of(fid):
+        options = []
+        for n in world.regions[g.region].neighbors:
+            c = agent_step_cost(world, g.region, n)
+            if c is None or c > rules.scout_steps:
+                continue
+            seen_armies = known.get(n, {}).get("a", [])
+            if any(o != fid for o, _ in seen_armies):
+                continue
+            unknown = sum(1 for m in world.regions[n].neighbors if m not in known)
+            options.append((unknown + rng.random(), n))
+        if options:
+            options.sort(reverse=True)
+            orders.append({"type": "agent_move", "agent": g.id, "path": [options[0][1]]})
+    want_scouts = {"expansionist": 2, "builder": 1, "defender": 1}[style]
+    if len(state.agents_of(fid)) < want_scouts and stock["gold"] > 40 and afford(rules.scout_cost):
+        orders.append({"type": "recruit_agent", "region": mine[0], "kind": "scout"})
 
     # --- economia: construir
     build_bias = {"expansionist": 0.4, "builder": 1.0, "defender": 0.7}[style]

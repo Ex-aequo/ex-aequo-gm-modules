@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createMapRenderer, type MapMarker, type MapRenderer } from "@map-renderer";
-import type { Snapshot } from "./types";
+import type { MapData } from "./types";
 
 interface Props {
-  snapshot: Snapshot | null;
+  data: MapData | null;
   markers: MapMarker[];
   selected: number;
   focusTarget: number;
@@ -13,7 +13,7 @@ interface Props {
 }
 
 /** O mapa partilhado (módulo map-renderer) dentro de um componente React. */
-export function MapView({ snapshot, markers, selected, focusTarget, onRegionClick, onHover, onReady }: Props) {
+export function MapView({ data, markers, selected, focusTarget, onRegionClick, onHover, onReady }: Props) {
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<MapRenderer | null>(null);
@@ -46,10 +46,10 @@ export function MapView({ snapshot, markers, selected, focusTarget, onRegionClic
 
   useEffect(() => {
     const m = mapRef.current;
-    if (!m || !snapshot) return;
-    m.setFactions([...snapshot.factions, snapshot.praga]);
-    m.setState({ owner: snapshot.owner, plague: snapshot.plague });
-  }, [snapshot, ready]);
+    if (!m || !data) return;
+    m.setFactions(data.factions);
+    m.setState({ owner: data.owner, plague: data.plague, fog: data.fog });
+  }, [data, ready]);
 
   useEffect(() => { mapRef.current?.setMarkers(markers); }, [markers, ready]);
   useEffect(() => { mapRef.current?.setSelected(selected); }, [selected, ready]);

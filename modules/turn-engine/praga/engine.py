@@ -8,9 +8,10 @@ from __future__ import annotations
 import copy
 import random
 
-from .orders import build_cost, validate
+from .orders import agent_cost, build_cost, validate
 from .rules import BUILDINGS, FREE, PRAGA, RESOURCES, Rules
-from .state import Army, Faction, GameState, WorldMap
+from .state import Agent, Army, Faction, GameState, WorldMap
+from .vision import factions_near, make_rumours, post, update_vision
 
 
 def _rng(world: WorldMap, state: GameState, phase: str) -> random.Random:
@@ -36,6 +37,8 @@ def dissolve(state: GameState, fid: int, events: list):
         r.owner, r.order, r.garrison, r.project = FREE, 0, 50, None
     for aid in [a.id for a in state.armies_of(fid)]:
         del state.armies[aid]
+    for gid in [g.id for g in state.agents_of(fid)]:
+        del state.agents[gid]
     events.append(("dissolve", fid, f"{f.name} dissolve-se; as suas terras ficam livres"))
 
 
@@ -58,6 +61,7 @@ def add_faction(state: GameState, world: WorldMap, rules: Rules, fid: int, name:
                                   protected_until=state.turn + rules.protection_turns - 1, last_orders=state.turn)
     state.armies[state.next_army] = Army(id=state.next_army, owner=fid, region=best, men=rules.start_army)
     state.next_army += 1
+    update_vision(state, world, rules)
     return best
 
 
@@ -148,6 +152,8 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
         men = sum(a.men for a in s.armies_of(fid))
         income["food"] -= men / 100 * rules.army_food_per_100
         income["gold"] -= men / 100 * rules.army_gold_per_100
+        for g in s.agents_of(fid):
+            income["gold"] -= rules.scout_upkeep if g.kind == "scout" else rules.spy_upkeep
         for k in RESOURCES:
             f.stock[k] = round(f.stock[k] + income[k], 2)
         f.famine = f.stock["food"] < 0
@@ -188,6 +194,17 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
                 purging.append(a)
             elif o["type"] == "garrison" and a:
                 garrisoned.add(a.id)
+    # batedores e espiões (§8): os batedores veem as regiões por onde passam; atacar também dá vista do alvo
+    seen_now: dict[int, set] = {}
+    for fid, os_ in sorted(valid.items()):
+        for o in os_:
+            if o["type"] == "agent_move" and o["agent"] in s.agents:
+                g = s.agents[o["agent"]]
+                g.region = o["path"][-1]
+                if g.kind == "scout":
+                    seen_now.setdefault(fid, set()).update(o["path"])
+            elif o["type"] == "attack":
+                seen_now.setdefault(fid, set()).add(o["target"])
     # exércitos sem ordem guarnecem (ordens permanentes)
     ordered = {o["army"] for os_ in valid.values() for o in os_ if "army" in o}
     garrisoned |= {aid for aid in s.armies if aid not in ordered}
@@ -228,6 +245,26 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
             else:
                 a.region = origin
 
+    # 5b. batedores apanhados por exércitos não aliados; espiões descobertos (§8)
+    rng_ag = _rng(world, s, "agents")
+    for gid, g in sorted(s.agents.items()):
+        f = s.factions[g.owner]
+        r = s.regions[g.region]
+        name = world.regions[g.region].name
+        if g.kind == "scout":
+            if any(a.owner != g.owner and f.posture(a.owner) != "ally" for a in s.armies_in(g.region)):
+                del s.agents[gid]
+                post(s, rules, g.owner, turn, "report", f"O nosso batedor foi apanhado em {name}.")
+                events.append(("scout_lost", g.owner, g.region))
+        elif r.owner != g.owner:
+            chance = rules.spy_catch_base + rules.spy_catch_per_fort * r.fort
+            if rng_ag.random() < chance:
+                del s.agents[gid]
+                post(s, rules, g.owner, turn, "report", f"O nosso espião em {name} foi descoberto e executado.")
+                if r.owner > 0 and r.owner in s.factions:
+                    post(s, rules, r.owner, turn, "report", f"Apanhámos um espião de {f.name} em {name}.")
+                events.append(("spy_caught", g.owner, g.region, r.owner))
+
     # 6. construção e recrutamento
     for fid, os_ in sorted(valid.items()):
         f = s.factions[fid]
@@ -248,6 +285,14 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
                     r.project = {"kind": "upgrade", "left": rules.building_turns[r.level + 1]}
                 else:
                     r.project = {"kind": "new", "what": o["what"], "left": rules.building_turns[1]}
+            elif o["type"] == "recruit_agent":
+                rid, need = o["region"], agent_cost(o["kind"], rules)
+                if s.regions[rid].owner != fid or any(f.stock[k] < v for k, v in need.items()):
+                    continue
+                for k, v in need.items():
+                    f.stock[k] -= v
+                s.agents[s.next_agent] = Agent(id=s.next_agent, owner=fid, kind=o["kind"], region=rid)
+                s.next_agent += 1
             elif o["type"] == "recruit":
                 rid, men = o["region"], int(o["men"])
                 r = s.regions[rid]
@@ -286,10 +331,14 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
     for fid, f in sorted(s.factions.items()):
         if f.active and not s.regions_of(fid) and not s.armies_of(fid):
             f.active = False
+            for gid in [g.id for g in s.agents_of(fid)]:
+                del s.agents[gid]
             events.append(("eliminated", fid, f"{f.name} foi eliminada"))
 
-    # 8. eventos (gancho para o módulo de mestre de jogo) — vazio na v0.1
+    # 8. visão e rumores (§8): fotografias do que cada fação vê agora; rumores sobre o que não vê
     s.turn += 1
+    update_vision(s, world, rules, seen_now)
+    make_rumours(s, world, rules, events, turn)
     return s, events
 
 
@@ -400,6 +449,9 @@ def validate_gm(state: GameState, world: WorldMap, rules: Rules, gm_orders: list
       {"type": "plague_state", "value": "active" | "dormant"}
       {"type": "plague_focus", "region": 115}
       {"type": "plague_intensity", "value": "weak" | "normal" | "strong"}
+      {"type": "rumor", "text": "...", "factions": [3, 7]}            rumor a fações escolhidas
+      {"type": "rumor", "text": "...", "region": 115, "radius": 6}    rumor a quem tem terras perto de uma região
+    O GM pode escrever rumores verdadeiros ou falsos; o motor não os verifica.
     """
     accepted, errors = [], []
     for i, o in enumerate(gm_orders or []):
@@ -416,6 +468,22 @@ def validate_gm(state: GameState, world: WorldMap, rules: Rules, gm_orders: list
         elif t == "plague_intensity":
             if o.get("value") not in rules.plague_intensities:
                 err = f"intensidade tem de ser uma de {sorted(rules.plague_intensities)}"
+        elif t == "rumor":
+            text = o.get("text")
+            if not isinstance(text, str) or not 1 <= len(text.strip()) <= 500:
+                err = "o rumor precisa de texto (até 500 caracteres)"
+            elif "factions" in o:
+                fs = o["factions"]
+                if not isinstance(fs, list) or not fs or any(f not in state.factions or not state.factions[f].active
+                                                             for f in fs):
+                    err = "lista de fações inválida"
+            elif "region" in o:
+                if o["region"] not in state.regions:
+                    err = "região inexistente"
+                elif not isinstance(o.get("radius", 5), int) or not 0 <= o.get("radius", 5) <= 30:
+                    err = "raio tem de estar entre 0 e 30"
+            else:
+                err = "indica 'factions' ou 'region'"
         else:
             err = f"ordem de GM desconhecida '{t}'"
         if err:
@@ -450,3 +518,9 @@ def _apply_gm(s: GameState, world: WorldMap, rules: Rules, gm_orders: list[dict]
                 if nr.owner != PRAGA:
                     nr.plague = max(nr.plague, rules.foci_neighbor_plague)
             events.append(("gm", 0, f"Um foco da Praga abre-se em {world.regions[rid].name}."))
+            events.append(("focus", 0, rid))
+        elif t == "rumor":
+            targets = o["factions"] if "factions" in o else factions_near(s, world, o["region"], o.get("radius", 5))
+            for fid in targets:
+                post(s, rules, fid, s.turn, "gm", o["text"].strip())
+            events.append(("gm", 0, f"Rumor enviado a {len(targets)} fação(ões)."))

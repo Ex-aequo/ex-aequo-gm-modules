@@ -18,6 +18,7 @@ sys.path.insert(0, str(ENGINE))
 from praga import DEFAULT, FREE, PRAGA, GameState, WorldMap, new_game, resolve_turn  # noqa: E402
 from praga.bots import STYLES, bot_orders  # noqa: E402
 from praga.engine import INTENSITY_PT, validate_gm  # noqa: E402
+from praga.vision import player_view  # noqa: E402
 
 PRAGA_FACTION = {"id": PRAGA, "name": "A Praga", "color": "#3a1d40"}
 STYLE_PT = {"expansionist": "expansionista", "builder": "construtor", "defender": "defensor"}
@@ -130,12 +131,35 @@ class Sandbox:
         r, info = s.regions[rid], self.world.regions[rid]
         raw = self.raw_world["regions"][rid - 1]
         armies = [{"owner": a.owner, "men": a.men, "vet": a.vet} for a in s.armies_in(rid)]
+        agents = [{"owner": g.owner, "kind": g.kind} for g in s.agents.values() if g.region == rid]
         return {
             "id": rid, "name": raw["fullName"], "kind": raw["kind"], "biome": info.biome, "elevation": info.elevation,
             "coastal": info.coastal, "owner": r.owner, "pop": round(r.pop, 1), "order": r.order, "fort": r.fort,
             "building": r.building, "level": r.level, "plague": r.plague, "garrison": r.garrison, "armies": armies,
-            "suggested_focus": rid in s.foci, "neighbors": list(info.neighbors),
+            "suggested_focus": rid in s.foci, "neighbors": list(info.neighbors), "agents": agents,
         }
+
+    # ------------------------------------------------------------------ vista de um jogador (§8)
+    def view(self, fid: int) -> dict:
+        """O que a fação fid sabe — exatamente o que o servidor real lhe enviaria — mais as tabelas para o mapa."""
+        s = self.state
+        if fid not in s.factions:
+            raise KeyError(fid)
+        v = player_view(s, self.world, self.rules, fid)
+        n = len(s.regions)
+        owner, plague, fog = [0] * (n + 1), [0.0] * (n + 1), [0] * (n + 1)
+        band_to_plague = (0.0, 0.3, 0.6, 1.0)
+        for rid, e in v["regions"].items():
+            owner[rid] = e["o"]
+            fog[rid] = min(3, e["level"])
+            plague[rid] = round(e["plague"] / 100, 3) if "plague" in e else band_to_plague[e["p"]]
+        known_ids = {f["id"] for f in v["factions"]} | {fid}
+        factions = [{"id": f.id, "name": f.name, "color": self.colors.get(f.id, "#8a8070")}
+                    for f in s.factions.values() if f.id in known_ids]
+        v.update({"owner": owner, "plague": plague, "fog": fog, "map_factions": factions,
+                  "known_share": round(len(v["regions"]) / n, 4)})
+        v["regions"] = {str(k): e for k, e in v["regions"].items()}
+        return v
 
     # ------------------------------------------------------------------ ordens do GM
     def add_order(self, order: dict) -> list[dict]:
@@ -146,6 +170,8 @@ class Sandbox:
             if order["type"] == "plague_focus" and any(o["type"] == "plague_focus" and o["region"] == order["region"]
                                                         for o in self.pending):
                 raise GMError("já há um foco pendente nesta região")
+            if order["type"] == "rumor" and sum(o["type"] == "rumor" for o in self.pending) >= 10:
+                raise GMError("no máximo 10 rumores por turno")
             if order["type"] in ("plague_state", "plague_intensity"):   # a última decisão substitui a anterior
                 self.pending = [o for o in self.pending if o["type"] != order["type"]]
             self.pending.append(acc[0])
@@ -185,6 +211,9 @@ class Sandbox:
                 outbreaks.append(e[2])
             elif k in ("dissolve", "eliminated", "regency"):
                 out.append({"turn": turn, "kind": "faction", "text": e[2] + "."})
+            elif k == "spy_caught":
+                out.append({"turn": turn, "kind": "faction", "regions": [e[2]],
+                            "text": f"Um espião de {name(e[1])} é apanhado em {self.region_name[e[2]]}."})
         if lost:
             names = ", ".join(self.region_name[r] for r in lost[:4]) + (f" e mais {len(lost) - 4}" if len(lost) > 4 else "")
             out.append({"turn": turn, "kind": "plague", "text": f"Caem para a Praga: {names}.", "regions": lost})
