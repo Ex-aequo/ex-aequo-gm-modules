@@ -156,6 +156,16 @@ class GameState:
             "factions": {str(k): asdict(v) for k, v in sorted(self.factions.items())},
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "GameState":
+        return cls(
+            turn=d["turn"], next_army=d["next_army"], rng_seed=d.get("rng_seed", ""), foci=list(d.get("foci", [])),
+            plague_active=d.get("plague_active", False), plague_intensity=d.get("plague_intensity", "normal"),
+            regions={int(k): Region(**v) for k, v in d["regions"].items()},
+            armies={int(k): Army(**v) for k, v in d["armies"].items()},
+            factions={int(k): Faction(**v) for k, v in d["factions"].items()},
+        )
+
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True).encode()).hexdigest()[:16]
 

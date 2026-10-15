@@ -2,8 +2,8 @@
 
 Ferramentas da Ex-Aequo Games para criar e gerir jogos de estratégia por turnos: mapas, mestre de jogo, narrativa.
 
-Cada módulo vive em `modules/<nome>/`, é independente e tem o seu próprio README. Não há código partilhado entre
-módulos até dois deles precisarem da mesma coisa.
+Cada módulo vive em `modules/<nome>/` e tem o seu próprio README. Só há código partilhado quando dois módulos precisam
+da mesma coisa (o primeiro caso: `map-renderer`).
 
 ## Módulos
 
@@ -11,6 +11,8 @@ módulos até dois deles precisarem da mesma coisa.
 |---|---|---|
 | [world-map](modules/world-map/) | protótipo | Mapa-mundo a partir de dados Azgaar: base pintada determinística, regiões jogáveis, fronteiras e Praga em WebGL2 |
 | [turn-engine](modules/turn-engine/) | protótipo | Motor de turnos determinístico (regras v0.4), ordens de GM, bots e simulação com políticas de GM |
+| [map-renderer](modules/map-renderer/) | protótipo | Renderizador partilhado do mapa (WebGL2), usado pela demo do mapa e pelo painel do GM |
+| [gm-panel](modules/gm-panel/) | protótipo | Painel do mestre de jogo em modo sandbox: FastAPI + React, controlo da Praga, pré-visualização de turnos |
 
 ## Convenções
 

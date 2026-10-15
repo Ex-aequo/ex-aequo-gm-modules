@@ -33,6 +33,11 @@ class EngineTests(unittest.TestCase):
     def test_deterministic(self):
         self.assertEqual(self.run_turns(15).digest(), self.run_turns(15).digest())
 
+    def test_state_roundtrip(self):
+        from praga.state import GameState
+        s, _, _ = self.with_focus()
+        self.assertEqual(GameState.from_dict(s.to_dict()).digest(), s.digest())
+
     def test_resolve_does_not_mutate_input(self):
         s = self.fresh()
         before = s.digest()

@@ -3,6 +3,10 @@ import re, pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 src = (ROOT / 'web/index.html').read_text()
 js = (ROOT / 'web/map.js').read_text()
+# o renderizador partilhado entra na mesma página: sem "export" nem "import"
+renderer = (ROOT.parent / 'map-renderer/renderer.js').read_text()
+renderer = re.sub(r'^export ', '', renderer, flags=re.M)
+js = renderer + '\n' + re.sub(r'^import .*?;\n', '', js, flags=re.M)
 head = re.search(r'<head>(.*?)</head>', src, re.S).group(1)
 body = re.search(r'<body>(.*?)</body>', src, re.S).group(1)
 head = re.sub(r'<meta charset="utf-8">\s*', '', head)

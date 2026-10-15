@@ -14,7 +14,7 @@ worlds/<nome>.toml        seed e opções de geração de cada mundo (fonte de v
 tools/export_azgaar.py    gera o mundo no Azgaar (headless) e descarrega o Full JSON
 tools/build_world.py      Full JSON -> web/data/{world.json, base.jpg, regions.png}
 tools/build_page.py       junta index.html + map.js numa página única (build/dist/)
-web/index.html, map.js    cliente WebGL2, sem dependências
+web/index.html, map.js    demo interativa (o desenho do mapa vem do módulo map-renderer)
 ```
 
 `build/` e `web/data/` são gerados e não vão para o git.
@@ -34,7 +34,7 @@ python tools/export_azgaar.py worlds/praga.toml build/praga/world_full.json
 python tools/build_world.py build/praga/world_full.json web/data      # ~40 s
 
 # 3. ver
-cd web && python -m http.server 8765    # http://127.0.0.1:8765
+cd .. && python -m http.server 8000    # a partir de modules/ → http://127.0.0.1:8000/world-map/web/
 ```
 
 Para um mundo novo: copiar `worlds/praga.toml`, mudar a seed e as opções, repetir o passo 2.

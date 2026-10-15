@@ -40,3 +40,15 @@ Formato: data — decisão — porquê — o que fica em aberto.
   O motor sozinho já não garante um mundo jogável: depende de boas decisões do GM.
 - **Em aberto:** painel do GM (hoje as ordens são JSON); ferramentas de leitura para o GM decidir (quanto do mapa está
   perdido, quem lidera, onde abrir focos).
+
+## 2026-10-15 — Painel do GM em modo sandbox, React, renderizador partilhado
+
+- **Decisão:** o painel do GM começa como sandbox local (24 bots + tu como GM), com backend FastAPI e interface React +
+  Vite + TypeScript. A pré-visualização de turnos entra já na primeira versão.
+- **Porquê:** um painel real puxa o servidor multijogador inteiro (contas, ordens, relógio de 48 h). O sandbox testa
+  primeiro se o painel serve para decidir e se ser GM é interessante. A lógica fica em `sandbox.py` para ser
+  reaproveitada pelo servidor real.
+- **Renderizador partilhado:** o mapa passou a ser usado por dois módulos, por isso saiu para `modules/map-renderer`
+  (primeira exceção à regra de módulos sem código comum).
+- **Pré-visualização exata:** como o motor e os bots são determinísticos, a previsão de N turnos é exatamente o que
+  acontece ao resolver (há um teste que o garante). Com jogadores humanos passará a ser uma estimativa.

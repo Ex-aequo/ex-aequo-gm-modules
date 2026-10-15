@@ -2,6 +2,7 @@
 build/
 modules/*/build/
 modules/*/web/data/
+modules/*/frontend/dist/
 
 # python
 __pycache__/
