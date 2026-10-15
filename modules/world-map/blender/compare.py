@@ -1,8 +1,8 @@
-"""Prova Blender, passo 3: junta a base atual e o render do Blender lado a lado.
+"""Prova Blender, passo 3: junta a base atual e os renders do Blender lado a lado.
 
 Uso: python blender/compare.py build/blender-prova
-Escreve <pasta>/comparacao.png (esquerda: base atual; direita: Blender) e <pasta>/comparacao-zoom.png
-(um quarto do recorte ampliado 2×, onde se vê a diferença de detalhe).
+Escreve <pasta>/comparacao.png (base atual + cada estilo renderizado), <pasta>/comparacao-zoom.png (o centro do
+recorte ampliado 2×, onde se vê a diferença de detalhe).
 """
 import sys
 from pathlib import Path
@@ -21,20 +21,21 @@ def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     d = Path(sys.argv[1])
-    a = Image.open(d / "atual.png").convert("RGB")
-    b = Image.open(d / "render.png").convert("RGB")
-    a = a.resize(b.size, Image.LANCZOS)
-    w, h = b.size
-    side = Image.new("RGB", (w * 2 + 16, h), (20, 16, 12))
-    side.paste(label(a.copy(), "base atual (Python)"), (0, 0))
-    side.paste(label(b.copy(), "Blender"), (w + 16, 0))
-    side.save(d / "comparacao.png")
+    renders = sorted(d.glob("render-*.png"))
+    if not renders:
+        sys.exit("não há renders (render-<estilo>.png) nesta pasta")
+    b0 = Image.open(renders[0])
+    w, h = b0.size
+    items = [("base atual (Python)", Image.open(d / "atual.png").convert("RGB").resize((w, h), Image.LANCZOS))]
+    items += [(f"Blender: {r.stem.split('-', 1)[1]}", Image.open(r).convert("RGB")) for r in renders]
     box = (w // 4, h // 4, w // 4 + w // 2, h // 4 + h // 2)
-    za, zb = a.crop(box).resize((w, h), Image.LANCZOS), b.crop(box).resize((w, h), Image.LANCZOS)
-    zoom = Image.new("RGB", (w * 2 + 16, h), (20, 16, 12))
-    zoom.paste(label(za, "base atual, zoom 2x"), (0, 0))
-    zoom.paste(label(zb, "Blender, zoom 2x"), (w + 16, 0))
-    zoom.save(d / "comparacao-zoom.png")
+    for name, zoom in (("comparacao.png", False), ("comparacao-zoom.png", True)):
+        sheet = Image.new("RGB", (len(items) * (w + 16) - 16, h), (20, 16, 12))
+        for i, (text, im) in enumerate(items):
+            if zoom:
+                im = im.crop(box).resize((w, h), Image.LANCZOS)
+            sheet.paste(label(im.copy(), text + (" · zoom 2x" if zoom else "")), (i * (w + 16), 0))
+        sheet.save(d / name)
     print("guardado:", d / "comparacao.png", "e", d / "comparacao-zoom.png")
 
 

@@ -19,12 +19,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from scipy import ndimage
 from scipy.interpolate import LinearNDInterpolator
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 SEA_LEVEL = 20
 # paleta da base atual (tools/build_world.py) — repetida aqui de propósito: o build_world é um script, não um módulo
@@ -99,58 +102,75 @@ def main():
     px = args.px
     k = px / size                                   # píxeis por unidade do mundo
     print(f"janela x={x0:.0f} y={y0:.0f} lado={size:.0f} → {px}×{px} px ({k:.1f} px por unidade)")
+    # o relevo é calculado numa janela com margem e cortado no fim: a erosão usa a borda como nível de base,
+    # e assim a borda fica fora da imagem (e recortes vizinhos encaixam melhor)
+    pad = px // 8
+    PW = px + 2 * pad
+    X0, Y0 = x0 - pad / k, y0 - pad / k
 
-    yy, xx = np.mgrid[0:px, 0:px].astype(np.float32)
-    wx, wy = x0 + (xx + 0.5) / k, y0 + (yy + 0.5) / k
+    yy, xx = np.mgrid[0:PW, 0:PW].astype(np.float32)
+    wx, wy = X0 + (xx + 0.5) / k, Y0 + (yy + 0.5) / k
 
     # células perto da janela
     pts = np.array([c["p"] for c in cells], dtype=np.float64)
-    near = ((pts[:, 0] > x0 - 40) & (pts[:, 0] < x0 + size + 40) & (pts[:, 1] > y0 - 40) & (pts[:, 1] < y0 + size + 40))
+    m = 40 + pad / k
+    near = ((pts[:, 0] > x0 - m) & (pts[:, 0] < x0 + size + m) & (pts[:, 1] > y0 - m) & (pts[:, 1] < y0 + size + m))
     idx = np.where(near)[0]
     hval = np.array([cells[i]["h"] for i in idx], dtype=np.float64)
     bio = np.array([cells[i]["biome"] for i in idx], dtype=np.int32)
 
     # --- terra/mar: a costa do regions.png (2 px por unidade), suavizada para a resolução nova
-    rx0, ry0, rs = int(x0 * scale), int(y0 * scale), int(size * scale)
-    land_r = ((reg[ry0:ry0 + rs, rx0:rx0 + rs, 0].astype(int) + reg[ry0:ry0 + rs, rx0:rx0 + rs, 1]) > 0).astype(np.float32)
-    land_f = ndimage.zoom(land_r, px / rs, order=1)[:px, :px]
+    def raster_crop(arr, rx, ry, n):
+        """Recorte que aceita sair do mundo (fora do mapa conta como mar)."""
+        out = np.zeros((n, n) + arr.shape[2:], arr.dtype)
+        sx0, sy0 = max(rx, 0), max(ry, 0)
+        sx1, sy1 = min(rx + n, arr.shape[1]), min(ry + n, arr.shape[0])
+        if sx1 > sx0 and sy1 > sy0:
+            out[sy0 - ry:sy1 - ry, sx0 - rx:sx1 - rx] = arr[sy0:sy1, sx0:sx1]
+        return out
+    rX0, rY0, rS = int(round(X0 * scale)), int(round(Y0 * scale)), int(round(size * scale + 2 * pad / k * scale))
+    land_r = raster_crop(land_all, rX0, rY0, rS).astype(np.float32)
+    land_f = ndimage.zoom(land_r, PW / rS, order=1)[:PW, :PW]
+    if land_f.shape[0] < PW:
+        land_f = np.pad(land_f, ((0, PW - land_f.shape[0]), (0, PW - land_f.shape[1])), mode="edge")
     land_f = ndimage.gaussian_filter(land_f, k / scale * 0.5)
     land = land_f >= 0.5
 
-    # --- altura: interpolação das células + detalhe
+    # --- altura: base suave do Azgaar → erosão (blender/erosion.py)
     interp = LinearNDInterpolator(pts[idx], hval, fill_value=0.0)
-    h = interp(wx.ravel(), wy.ravel()).reshape(px, px).astype(np.float32)
+    h = interp(wx.ravel(), wy.ravel()).reshape(PW, PW).astype(np.float32)
     h = ndimage.gaussian_filter(h, k * 3)
-    elev = np.clip((h - SEA_LEVEL) / (80 - SEA_LEVEL), 0, 1)              # 0 na costa, 1 nos picos
-    # cristas: ruído "ridged" com mais força onde já é montanha, mais fino perto do pico
-    ridges = fbm((px, px), 6, 6, seed=101, ridged=True)
-    detail = fbm((px, px), 5, 24, seed=102)
-    elev = elev + (ridges - 0.55) * 0.55 * elev ** 1.4 + (detail - 0.5) * 0.06 * (0.3 + elev)
-    # vales dos rios (rios do Azgaar): cavam mais nas zonas altas, abrem-se com o caudal
-    riv = np.zeros((px, px), np.float32)
+    base = np.where(land, np.clip((h - SEA_LEVEL) / (80 - SEA_LEVEL), 0.002, 1), 0)   # 0 na costa, 1 nos picos
+    from erosion import mountains
+    elev = mountains(base, land, vertical_px=40 * k)
+    # vales dos rios do Azgaar (os rios que o jogo desenha): marcados de leve, para coincidirem com o relevo
     from PIL import ImageDraw
-    canvas = Image.new("F", (px, px), 0.0)
+    canvas = Image.new("F", (PW, PW), 0.0)
     dr = ImageDraw.Draw(canvas)
     for rv in d["pack"]["rivers"]:
         if not rv or len(rv.get("cells", [])) < 3:
             continue
-        line = [((pts[c][0] - x0) * k, (pts[c][1] - y0) * k) for c in rv["cells"] if 0 <= c < len(pts)]
-        if not any(0 <= x < px and 0 <= y < px for x, y in line):
+        line = [((pts[c][0] - X0) * k, (pts[c][1] - Y0) * k) for c in rv["cells"] if 0 <= c < len(pts)]
+        if not any(0 <= x < PW and 0 <= y < PW for x, y in line):
             continue
         w = max(1.0, min(6.0, (rv.get("discharge", 1) ** 0.5) / 6))
         dr.line(line, fill=float(w), width=max(2, int(w * k / 3)))
-    riv = np.asarray(canvas, dtype=np.float32)
-    valley = ndimage.gaussian_filter(riv, k * 4.0)
+    valley = ndimage.gaussian_filter(np.asarray(canvas, dtype=np.float32), k * 3.0)
     valley /= max(valley.max(), 1e-6)
-    elev = elev - np.sqrt(valley) * (0.03 + 0.25 * elev)
+    elev = elev - np.sqrt(valley) * (0.01 + 0.12 * elev)
     elev = np.clip(elev, 0.004, None)
     # perto da costa, a terra desce suave até ao mar (praias, não falésias por todo o lado)
     dist_land = ndimage.distance_transform_edt(land) / k
     elev = elev * np.clip(dist_land / 6.0, 0.15, 1.0)
-    height = np.where(land, elev, 0.0).astype(np.float32)
-    # mar: profundidade relativa pela distância à costa
     dist_sea = ndimage.distance_transform_edt(~land) / k
-    sea = np.where(land, 0.0, np.clip(dist_sea / 30.0, 0, 1)).astype(np.float32)
+    sea_full = np.where(land, 0.0, np.clip(dist_sea / 30.0, 0, 1))
+
+    # corte da margem: daqui para a frente, tudo à janela pedida
+    cut = (slice(pad, pad + px), slice(pad, pad + px))
+    land, elev, wx, wy = land[cut], elev[cut], wx[cut], wy[cut]
+    height = np.where(land, elev, 0.0).astype(np.float32)
+    sea = sea_full[cut].astype(np.float32)
+    rx0, ry0, rs = int(x0 * scale), int(y0 * scale), int(size * scale)
 
     # --- cor de bioma e floresta (célula mais próxima, suavizado)
     from scipy.spatial import cKDTree
@@ -159,7 +179,7 @@ def main():
     col = BIOME_RGB[b]
     col = np.stack([ndimage.gaussian_filter(col[..., i], k * 2) for i in range(3)], -1)
     forest = ndimage.gaussian_filter(FOREST[b], k * 1.5)
-    forest *= land * np.clip(1 - (elev - 0.55) / 0.2, 0, 1)                    # sem árvores nos picos
+    forest *= land * np.clip(1 - (elev - 0.6) / 0.2, 0, 1)                     # sem árvores nos picos
     forest *= fbm((px, px), 4, 10, seed=103) * 1.4                              # clareiras
     forest = np.clip(forest, 0, 1).astype(np.float32)
 

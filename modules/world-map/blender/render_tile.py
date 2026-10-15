@@ -9,7 +9,9 @@ Opções (depois do "--"):
     --no-trees          sem árvores (para comparar e para renders rápidos)
     --cpu               força o processador (por defeito usa a GPU do Mac, via Metal, se houver)
     --save-blend        guarda também a cena (prova.blend) para abrir e mexer no Blender
-Escreve <pasta>/render.png.
+    --style maqueta     maqueta (relevo realista, luz rasante) | atlas (mapa pintado, papel e tinta) |
+                        sombrio (o tom da Praga: luz fria, névoa nos vales)
+Escreve <pasta>/render-<estilo>.png.
 
 Tudo é gerado por código, sem assets externos nem IA: o mesmo recorte dá sempre a mesma imagem.
 """
@@ -24,7 +26,8 @@ import numpy as np
 
 def parse_args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    opts = {"dir": None, "samples": 96, "px": None, "relief": 40.0, "trees": True, "cpu": False, "save_blend": False}
+    opts = {"dir": None, "samples": 96, "px": None, "relief": 40.0, "trees": True, "cpu": False, "save_blend": False,
+            "style": "maqueta"}
     it = iter(argv)
     for a in it:
         if a == "--samples":
@@ -39,6 +42,8 @@ def parse_args():
             opts["cpu"] = True
         elif a == "--save-blend":
             opts["save_blend"] = True
+        elif a == "--style":
+            opts["style"] = next(it)
         else:
             opts["dir"] = Path(a)
     if not opts["dir"]:
@@ -57,6 +62,20 @@ sea = np.load(D / "sea.npy")
 burgs = json.loads((D / "burgs.json").read_text())
 N = height.shape[0]
 RELIEF = O["relief"]
+HMAX = float(height.max()) or 1.0
+
+# estilos: só luz, cores, árvores e pós-processamento mudam; o terreno é o mesmo
+STYLES = {
+    "maqueta": dict(sun_tilt=60, sun_color=(1, 1, 1), sun_energy=5.0, sky=(0.62, 0.70, 0.80), sky_strength=0.35,
+                    exposure=-0.4, tree_scale=1.0, tree_density=0.7, tree_tint=1.0, snow=(0.82, 0.84, 0.86)),
+    "atlas": dict(sun_tilt=50, sun_color=(1.0, 0.93, 0.80), sun_energy=4.6, sky=(0.86, 0.78, 0.62), sky_strength=0.35,
+                  exposure=-0.35, tree_scale=1.6, tree_density=0.28, tree_tint=1.1, snow=(0.90, 0.88, 0.82)),
+    "sombrio": dict(sun_tilt=72, sun_color=(0.72, 0.80, 1.0), sun_energy=3.6, sky=(0.32, 0.37, 0.45), sky_strength=0.45,
+                    exposure=-0.55, tree_scale=1.0, tree_density=0.85, tree_tint=0.7, snow=(0.70, 0.74, 0.80)),
+}
+if O["style"] not in STYLES:
+    sys.exit(f"estilo desconhecido: {O['style']} (opções: {', '.join(STYLES)})")
+ST = STYLES[O["style"]]
 
 
 def sample(arr, x, y):
@@ -135,8 +154,8 @@ def build_terrain(nt, bsdf):
     noise.inputs["Detail"].default_value = 8
     # rocha nas encostas íngremes
     steep = nt.nodes.new("ShaderNodeMapRange")
-    steep.inputs["From Min"].default_value = 0.93
-    steep.inputs["From Max"].default_value = 0.78
+    steep.inputs["From Min"].default_value = 0.90
+    steep.inputs["From Max"].default_value = 0.72
     L.new(sep_n.outputs["Z"], steep.inputs["Value"])
     rock = nt.nodes.new("ShaderNodeMix")
     rock.data_type = "RGBA"
@@ -150,12 +169,12 @@ def build_terrain(nt, bsdf):
     L.new(rock.outputs["Result"], mix_rock.inputs["B"])
     # neve: acima de ~75 % da altura máxima, só onde não é a pique, com orla irregular
     snow_h = nt.nodes.new("ShaderNodeMapRange")
-    snow_h.inputs["From Min"].default_value = RELIEF * 0.70
-    snow_h.inputs["From Max"].default_value = RELIEF * 0.82
+    snow_h.inputs["From Min"].default_value = RELIEF * HMAX * 0.82        # neve só nos cumes
+    snow_h.inputs["From Max"].default_value = RELIEF * HMAX * 0.94
     add = nt.nodes.new("ShaderNodeMath")
     add.operation = "MULTIPLY_ADD"
     L.new(noise.outputs["Fac"], add.inputs[0])
-    add.inputs[1].default_value = RELIEF * 0.12
+    add.inputs[1].default_value = RELIEF * HMAX * 0.10
     L.new(sep_p.outputs["Z"], add.inputs[2])
     L.new(add.outputs["Value"], snow_h.inputs["Value"])
     flat = nt.nodes.new("ShaderNodeMapRange")
@@ -170,7 +189,7 @@ def build_terrain(nt, bsdf):
     mix_snow.data_type = "RGBA"
     L.new(snow_f.outputs["Value"], mix_snow.inputs["Factor"])
     L.new(mix_rock.outputs["Result"], mix_snow.inputs["A"])
-    mix_snow.inputs["B"].default_value = (0.93, 0.94, 0.95, 1)
+    mix_snow.inputs["B"].default_value = (*ST["snow"], 1)
     L.new(mix_snow.outputs["Result"], bsdf.inputs["Base Color"])
     bsdf.inputs["Roughness"].default_value = 0.92
     # micro-relevo
@@ -226,8 +245,9 @@ def tree_material(name, rgb):
     def build(nt, bsdf):
         info = nt.nodes.new("ShaderNodeObjectInfo")
         ramp = nt.nodes.new("ShaderNodeValToRGB")
-        ramp.color_ramp.elements[0].color = (*[c * 0.75 for c in rgb], 1)
-        ramp.color_ramp.elements[1].color = (*[min(1, c * 1.2) for c in rgb], 1)
+        t = ST["tree_tint"]
+        ramp.color_ramp.elements[0].color = (*[c * 0.75 * t for c in rgb], 1)
+        ramp.color_ramp.elements[1].color = (*[min(1, c * 1.2 * t) for c in rgb], 1)
         nt.links.new(info.outputs["Random"], ramp.inputs["Fac"])
         nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
         bsdf.inputs["Roughness"].default_value = 0.85
@@ -269,7 +289,7 @@ if O["trees"]:
     attr_n.inputs["Name"].default_value = "forest"
     dens = nn.new("ShaderNodeMath")
     dens.operation = "MULTIPLY"
-    dens.inputs[1].default_value = 0.7                       # árvores por unidade² onde a floresta é densa
+    dens.inputs[1].default_value = ST["tree_density"]        # árvores por unidade² onde a floresta é densa
     L.new(attr_n.outputs["Attribute"], dens.inputs[0])
     dist = nn.new("GeometryNodeDistributePointsOnFaces")
     dist.inputs["Seed"].default_value = 7
@@ -293,8 +313,8 @@ if O["trees"]:
     rnd_i.inputs["Max"].default_value = 1
     rnd_s = nn.new("FunctionNodeRandomValue")
     rnd_s.data_type = "FLOAT"
-    rnd_s.inputs["Min"].default_value = 0.6
-    rnd_s.inputs["Max"].default_value = 1.25
+    rnd_s.inputs["Min"].default_value = 0.6 * ST["tree_scale"]
+    rnd_s.inputs["Max"].default_value = 1.25 * ST["tree_scale"]
     rnd_s.inputs["Seed"].default_value = 3
     rnd_r = nn.new("FunctionNodeRandomValue")
     rnd_r.data_type = "FLOAT_VECTOR"
@@ -362,15 +382,16 @@ for b in burgs:
 # ------------------------------------------------------------------------------------------------ luz, câmara, render
 bpy.ops.object.light_add(type="SUN", location=(0, 0, 50))
 sun = bpy.context.active_object
-sun.data.energy = 5.0
+sun.data.energy = ST["sun_energy"]
+sun.data.color = ST["sun_color"]
 sun.data.angle = math.radians(3)                             # sombras ligeiramente suaves
-sun.rotation_euler = (math.radians(60), 0, math.radians(-135))  # luz rasante de noroeste, como nos mapas clássicos
+sun.rotation_euler = (math.radians(ST["sun_tilt"]), 0, math.radians(-135))   # luz de noroeste, como nos mapas clássicos
 world = bpy.data.worlds.new("Ceu")
 scene.world = world
 world.use_nodes = True
 bg = world.node_tree.nodes["Background"]
-bg.inputs["Color"].default_value = (0.62, 0.70, 0.80, 1)
-bg.inputs["Strength"].default_value = 0.35
+bg.inputs["Color"].default_value = (*ST["sky"], 1)
+bg.inputs["Strength"].default_value = ST["sky_strength"]
 
 bpy.ops.object.camera_add(location=(SIZE / 2, SIZE / 2, 200), rotation=(0, 0, 0))
 cam = bpy.context.active_object
@@ -388,9 +409,10 @@ scene.cycles.use_denoising = True
 scene.cycles.max_bounces = 4
 scene.view_settings.view_transform = "Standard"           # cores fiéis à paleta (o AgX lava-as)
 scene.view_settings.look = "None"
-scene.view_settings.exposure = -0.4
+scene.view_settings.exposure = ST["exposure"]
 scene.render.image_settings.file_format = "PNG"
-scene.render.filepath = str(D / "render.png")
+OUT = D / f"render-{O['style']}.png"
+scene.render.filepath = str(OUT)
 
 if not O["cpu"]:
     prefs = bpy.context.preferences.addons["cycles"].preferences
@@ -414,4 +436,61 @@ if O["save_blend"]:
     bpy.ops.wm.save_as_mainfile(filepath=str(D / "prova.blend"))
 print(f"a renderizar {PX}×{PX} com {O['samples']} amostras…")
 bpy.ops.render.render(write_still=True)
-print("guardado:", D / "render.png")
+
+
+# ------------------------------------------------------------------------------------------------ pós-processamento
+def box_blur(a, r):
+    """Desfoque em caixa (separável, por somas acumuladas): o Blender traz numpy mas não scipy."""
+    for axis in (0, 1):
+        c = np.cumsum(np.pad(a, [(r + 1, r) if i == axis else (0, 0) for i in range(a.ndim)], mode="edge"), axis=axis)
+        a = (np.take(c, range(2 * r + 1, c.shape[axis]), axis=axis) - np.take(c, range(0, c.shape[axis] - 2 * r - 1),
+                                                                              axis=axis)) / (2 * r + 1)
+    return a
+
+
+def post(path, style):
+    if style == "maqueta":
+        return
+    img = bpy.data.images.load(str(path))
+    w, h = img.size
+    px = np.empty(w * h * 4, np.float32)
+    img.pixels.foreach_get(px)
+    col = px.reshape(h, w, 4)[::-1, :, :3].copy()                   # linha 0 = norte
+    yi = (np.arange(h) * N // h)
+    xi = (np.arange(w) * N // w)
+    hm = height[yi][:, xi]
+    land = (hm > 0).astype(np.float32)
+    rng = np.random.default_rng(5)
+    if style == "atlas":
+        # papel: manchas largas + grão; tinta na costa; tom quente geral
+        g = rng.random((h // 64 + 2, w // 64 + 2)).astype(np.float32)
+        paper = box_blur(np.kron(g, np.ones((64, 64), np.float32))[:h, :w], 40)
+        paper = 0.88 + 0.16 * (paper - paper.min()) / max(np.ptp(paper), 1e-6)
+        grain = box_blur(rng.random((h, w)).astype(np.float32), 1)
+        col *= (paper * (0.97 + 0.06 * grain))[..., None]
+        soft = box_blur(land, 2)
+        ink = np.clip(1 - np.abs(soft * 2 - 1) * 3.0, 0, 1)
+        col = col * (1 - ink[..., None] * 0.75) + np.array([0.17, 0.13, 0.09]) * ink[..., None] * 0.75
+        lum = col @ np.array([0.3, 0.55, 0.15], np.float32)
+        col = lum[..., None] + (col - lum[..., None]) * 1.2              # cores mais vivas, como aguarela
+        col = col * 0.92 + np.array([0.94, 0.86, 0.68]) * 0.08
+    elif style == "sombrio":
+        lum = col @ np.array([0.3, 0.55, 0.15], np.float32)
+        col = col * 0.55 + lum[..., None] * 0.45                    # dessaturar
+        low = np.clip(1 - hm / (HMAX * 0.25), 0, 1) * land          # névoa nas terras baixas
+        haze = box_blur(low, 6)
+        col = col * (1 - haze[..., None] * 0.28) + np.array([0.42, 0.45, 0.50]) * haze[..., None] * 0.28
+        yy, xx = np.mgrid[0:h, 0:w]
+        vig = 1 - 0.45 * (((xx / w - 0.5) ** 2 + (yy / h - 0.5) ** 2) * 2) ** 1.3
+        col *= vig[..., None]
+        col *= np.array([0.94, 0.97, 1.04])
+    out = np.ones((h, w, 4), np.float32)
+    out[..., :3] = np.clip(col, 0, 1)[::-1]
+    img.pixels.foreach_set(out.ravel())
+    img.filepath_raw = str(path)
+    img.file_format = "PNG"
+    img.save()
+
+
+post(OUT, O["style"])
+print("guardado:", OUT)
