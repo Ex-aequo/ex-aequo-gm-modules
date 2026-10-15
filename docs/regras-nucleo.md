@@ -1,4 +1,4 @@
-# Praga — Regras núcleo (rascunho v0.1)
+# Praga — Regras núcleo (rascunho v0.2)
 
 **Estado:** rascunho para discussão. Nada aqui é final até ser marcado ✅.
 
@@ -42,17 +42,56 @@ As ordens são validadas **na submissão**, não na resolução: o jogador vê l
 
 ## 3. Entidades 🟡
 
-**Região** — dono, população, ordem pública (0–3), fortificação (0–3), até 2 edifícios, Praga (0–100).
+**Região** — dono, população, ordem pública (0–3), fortificação (0–3), um edifício de produção (nível 0–3), Praga (0–100).
 O terreno vem do mapa: bioma (produção, movimento), altitude (defesa), costa (travessias), rios (fronteira defensiva).
 
-**Fação** — tesouro, comida armazenada, posturas diplomáticas, pontos de comando.
+**Fação** — reservas dos quatro recursos, posturas diplomáticas, pontos de comando.
 
 **Exército** — está numa região, tem força (homens) e veterania (0–3). Na v0.1 há um só tipo de tropa.
 
-❓ **Quantos recursos?**
-- A) Só ouro. Simples, mas a Praga não tem onde morder além da população.
-- B) **Ouro + comida.** A comida alimenta exércitos e é o que a Praga destrói primeiro. Liga guerra, economia e Praga num só sistema. **(recomendo)**
-- C) Três ou mais recursos (madeira, ferro…). Mais 4X, mais trabalho por turno. Contraria o princípio 1.
+### 3.1 Recursos ✅
+
+✅ **Quatro recursos: ouro, comida, madeira e ferro.**
+✅ **A produção é automática**, a partir das regiões controladas. Não há ordens para produzir: os recursos só se
+gastam ao construir, recrutar e manter exércitos. O custo extra fica na leitura do relatório, não no trabalho por turno.
+
+| Recurso | De onde vem | Para que serve |
+|---|---|---|
+| **Ouro** | impostos sobre a população (todas as regiões); minas de ouro | manutenção de edifícios e exércitos, recrutamento |
+| **Comida** | pradaria, savana, floresta sazonal, costa | alimentar exércitos (1 por 100 homens/turno); crescimento da população |
+| **Madeira** | florestas, taiga, pântano | construir e subir edifícios, fortificações de madeira |
+| **Ferro** | montanhas (altitude alta), desertos | recrutar e equipar homens, fortificações de pedra |
+
+🟡 A produção base de cada região sai do bioma e da altitude que já estão no mapa. Uma fação sem montanhas não tem
+ferro próprio: comercia ou conquista. É aqui que a geografia passa a dar razões para guerra e diplomacia.
+
+### 3.2 Infraestruturas de produção ✅ (com níveis)
+
+✅ Edifícios de produção com níveis (exemplo: Mina de ouro nível 1, 2, 3).
+
+🟡 Proposta concreta:
+
+| Edifício | Onde se pode construir | Recurso |
+|---|---|---|
+| Quinta | regiões com produção base de comida | comida |
+| Serração | regiões com floresta | madeira |
+| Mina de ferro | montanha ou deserto | ferro |
+| Mina de ouro | só regiões com **veio de ouro** (~10% das regiões de montanha, fixo pela seed do mundo) | ouro |
+
+| Nível | Produção do recurso | Custo para chegar ao nível | Tempo | Manutenção (ouro/turno) |
+|---|---|---|---|---|
+| 1 | ×1,5 | 20 madeira | 1 turno | 2 |
+| 2 | ×2,0 | 40 madeira + 20 ferro | 2 turnos | 5 |
+| 3 | ×2,5 | 80 madeira + 40 ferro + 40 ouro | 3 turnos | 10 |
+
+- **Um edifício de produção por região.** Escolher Quinta ou Serração numa floresta sazonal é uma decisão, não uma lista de tarefas.
+- **Subir de nível é uma ordem Construir** e gasta pontos de comando, como qualquer outra.
+- **A manutenção cresce mais depressa do que a produção.** Um nível 3 só compensa numa região rica e segura.
+- **A Praga ataca a infraestrutura:** numa região Infestada o edifício para de produzir; numa região Perdida desce um nível.
+
+**Porque estas travas:** níveis de produção são o mecanismo clássico de efeito bola de neve (mais recursos → mais
+edifícios → mais recursos). Num mundo sem fim, sem travas, quem começa melhor fica à frente para sempre. A manutenção
+crescente, o limite de um edifício por região e a Praga mantêm a vantagem real mas finita. A simulação diz se chega.
 
 ## 4. Ordens da v0.1 🟡
 
@@ -64,7 +103,7 @@ Sete ordens, de propósito. Cada ordem gasta **pontos de comando (PC)**.
 | **Atacar** | exército | entra numa região hostil e combate | 1 |
 | **Guarnecer** | exército | fica e defende (+1 de defesa); é a ordem por defeito | 0 |
 | **Purgar** | exército | combate a Praga na região (§6); custa homens | 1 |
-| **Construir** | região | fortificação ou edifício; demora vários turnos | 1 |
+| **Construir** | região | fortificação, edifício de produção, ou subir um nível (§3.2); demora vários turnos | 1 |
 | **Recrutar** | região | novos homens; baixa a população e a ordem pública | 1 |
 | **Postura** | fação | declarar a outra fação: Aliado / Neutro / Hostil (como no Atlantis) | 0 |
 
@@ -78,7 +117,7 @@ gerir tudo, e a periferia esquecida é onde a Praga entra (§6).
 ## 5. Ordem de resolução 🟡
 
 1. **Diplomacia** — as posturas novas valem para este turno.
-2. **Economia** — rendimento e manutenção. Exército sem comida perde 10% dos homens.
+2. **Economia** — produção automática dos quatro recursos, manutenção de edifícios e exércitos. Exército sem comida perde 10% dos homens.
 3. **Movimento** — simultâneo, um passo de cada vez. Dois exércitos hostis que se cruzam numa fronteira param e combatem.
 4. **Combate** — por região, todos os hostis presentes. O defensor soma terreno, fortificação, rio e Guarnecer.
 5. **Conquista** — se o atacante vence e não sobram defensores, a região muda de dono com ordem pública 0
@@ -113,11 +152,8 @@ Uma região Perdida só se reconquista em dois passos: purgar até abaixo de 80 
 **Crias:** regiões Perdidas geram, de tempos a tempos, bandos hostis que atacam vizinhos. Fazem o papel dos monstros
 errantes do Atlantis.
 
-❓ **De onde nasce a Praga?**
-- A) Só dos Ermos iniciais. Previsível; ao turno 50 é um problema "de quem está perto".
-- B) **Dos Ermos, e também de surtos em regiões negligenciadas** (ordem pública 0 ou fome durante 2+ turnos). Pune a
-  expansão rápida e mal gerida, e é o principal travão ao jogador dominante. **(recomendo)**
-- C) Surtos aleatórios em qualquer lado. Parece injusto; os jogadores não conseguem planear contra isso.
+✅ **Origem da Praga: dos Ermos iniciais e de surtos em regiões negligenciadas** (ordem pública 0 ou fome durante
+2+ turnos). Pune a expansão rápida e mal gerida e é o principal travão ao jogador dominante.
 
 ❓ **A Praga pode consumir o mundo inteiro?**
 - A) Sim. Dá tensão real, mas o jogo pode acabar mal sem ninguém ter culpa.
@@ -142,26 +178,28 @@ errantes do Atlantis.
   tornam-se alvo natural da Praga (regra B do §6). O mundo recupera o espaço sem intervenção do GM.
   O número exato é decisão tua.
 
-## 8. Fim e vitória
+## 8. Fim e vitória ✅
 
-❓ **Num mundo sem fim, o que dá sentido a jogar?**
-- A) Nada formal; cada um define os seus objetivos, como no Atlantis puro.
-- B) **Eras: a cada 50 turnos (~100 dias) fecha uma Era**, com classificação de prestígio, títulos permanentes no perfil
-  do jogador e uma mudança de regras ou evento (a Praga muda de comportamento, abre-se um continente…). O mundo continua.
-  **(recomendo)** Até a comunidade do Atlantis acabou por precisar de regras de fim de jogo.
-- C) Vitória e reinício periódicos. Contradiz a decisão de mundo persistente.
+✅ **Sem objetivo formal.** Cada jogador define os seus objetivos, como no Atlantis puro. O mundo não acaba nem reinicia.
+
+⚠️ Risco registado: até a comunidade do Atlantis acabou por acrescentar regras de fim de jogo. Na simulação e nos
+primeiros meses de jogo real, vigiar dois sinais: abandono crescente de jogadores veteranos e um mapa que deixa de
+mudar. Se aparecerem, rever esta decisão (por exemplo, com Eras de prestígio sem reinício).
 
 ## 9. Fora da v0.1, de propósito
 
 Tecnologia, vários tipos de tropa, combate naval, comércio formal entre jogadores, espionagem e personagens/heróis.
 Cada um destes entra só se a simulação mostrar que o núcleo funciona e que falta exatamente isso.
 
-## 10. Decisões que preciso de ti
+## 10. Decisões
 
-1. Recursos: só ouro, **ouro + comida**, ou três ou mais? (§3)
-2. Origem da Praga: só Ermos, **Ermos + regiões negligenciadas**, ou aleatória? (§6)
-3. A Praga pode consumir o mundo? (§6)
-4. Proteção de entrada: **5 turnos** ou guarnição neutra? (§7)
-5. Turnos até a fação inativa se dissolver: 10 ou outro número? (§7)
-6. Fim: nada, **Eras de 50 turnos**, ou reinício? (§8)
-7. Alguma das 7 ordens a mais ou a menos? (§4)
+**Tomadas (2026-10-15):** quatro recursos com produção automática e infraestruturas com níveis (§3);
+Praga nasce dos Ermos e de regiões negligenciadas (§6); sem objetivo formal de fim (§8).
+
+**Ainda em aberto:**
+
+1. A Praga pode consumir o mundo inteiro, ou fica num equilíbrio de ~20–35% do mapa? (§6)
+2. Proteção de entrada: **5 turnos** ou guarnição neutra? (§7)
+3. Turnos até a fação inativa se dissolver: 10 ou outro número? (§7)
+4. Alguma das 7 ordens a mais ou a menos? (§4)
+5. A proposta de infraestruturas (§3.2) serve: um edifício por região, níveis 1–3, veios de ouro raros?
