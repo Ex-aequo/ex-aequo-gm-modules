@@ -65,8 +65,9 @@ Para um mundo novo: copiar `worlds/praga.toml`, mudar a seed e as opções, repe
 
 ## Limitações conhecidas
 
-- **Desempenho em GPU fraca/telemóvel não testado.** O shader faz ~70 leituras de textura por píxel.
-  Correção prevista: calcular o campo de distância às fronteiras uma vez por turno (render-to-texture).
+- **Desempenho:** testado em PC e telemóvel (2026-10-15), fluido em ambos. Não testado em Android de gama baixa.
+  O shader faz ~70 leituras de textura por píxel; se for preciso, calcular o campo de distância às fronteiras
+  uma vez por turno (render-to-texture).
 - **Zoom alto**: base e IDs a 2 px/unidade. Acima de ~6× a base fica mole e as fronteiras ganham facetas.
   Correção prevista: tiles por nível de zoom, com a base renderizada no Blender.
 - **A base pintada em Python é provisória** — serve para validar a direção visual.
