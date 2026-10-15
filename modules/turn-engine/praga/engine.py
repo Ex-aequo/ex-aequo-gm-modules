@@ -13,8 +13,8 @@ from .rules import BUILDINGS, FREE, PRAGA, RESOURCES, Rules
 from .state import Army, Faction, GameState, WorldMap
 
 
-def _rng(world: WorldMap, turn: int, phase: str) -> random.Random:
-    return random.Random(f"{world.seed}:{turn}:{phase}")
+def _rng(world: WorldMap, state: GameState, phase: str) -> random.Random:
+    return random.Random(f"{world.seed}:{state.rng_seed}:{state.turn}:{phase}")
 
 
 def regency_orders(state: GameState, world: WorldMap, rules: Rules, fid: int) -> list[dict]:
@@ -131,6 +131,7 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
             r, info = s.regions[rid], world.regions[rid]
             m = rules.order_production[r.order]
             prod = dict(info.base)
+            prod["iron"] += r.iron_bonus
             prod["gold"] = prod.get("gold", 0) + rules.gold_base + rules.gold_per_kpop * r.pop
             if r.building and r.plague < rules.plague_infested:
                 res = BUILDINGS[r.building]
@@ -188,7 +189,7 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
     garrisoned |= {aid for aid in s.armies if aid not in ordered}
 
     # 4–5. combate e conquista
-    rng = _rng(world, turn, "combat")
+    rng = _rng(world, s, "combat")
     for rid in sorted(attacks):
         for a, origin in sorted(attacks[rid], key=lambda x: x[0].id):
             if a.id not in s.armies:
@@ -289,15 +290,17 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
 
 
 def plague_strength(state: GameState, rules: Rules) -> float:
+    lost = sum(1 for r in state.regions.values() if r.owner == PRAGA) / len(state.regions)
+    if rules.plague_equilibrium:
+        return max(0.2, min(2.0, (rules.plague_equilibrium / max(lost, 0.01)) ** 1.5))
     if rules.plague_target is None:
         return 1.0
-    lost = sum(1 for r in state.regions.values() if r.owner == PRAGA) / len(state.regions)
     lo, hi = rules.plague_target
     return 1.6 if lost < lo else 0.35 if lost > hi else 1.0
 
 
 def _plague_phase(s: GameState, world: WorldMap, rules: Rules, purging: list[Army], events: list):
-    rng = _rng(world, s.turn, "plague")
+    rng = _rng(world, s, "plague")
     strength = plague_strength(s, rules)
 
     # purga
@@ -308,13 +311,23 @@ def _plague_phase(s: GameState, world: WorldMap, rules: Rules, purging: list[Arm
         r.plague = max(0, r.plague - int(rules.purge_base + rules.purge_per_100_men * a.men / 100))
         a.men = int(a.men * (1 - rules.purge_loss))
 
-    # crescimento e surtos
+    # crescimento, recuo (v0.3) e surtos
     for rid, r in sorted(s.regions.items()):
         if r.owner == PRAGA:
             continue
         if r.plague >= rules.plague_contaminated:
+            owner = s.factions.get(r.owner)
+            well_governed = owner is not None and r.order == 3 and not owner.famine
+            if r.owner == FREE and rules.free_lands_resist and r.garrison >= rules.neutral_garrison_base:
+                well_governed = True
+            if well_governed and rules.plague_recede:
+                r.plague = max(0, r.plague - rules.plague_recede)
+                continue
             resisted = r.fort >= 1 or r.order == 3
-            r.plague = min(100, r.plague + (rules.plague_growth_resisted if resisted else rules.plague_growth))
+            grow = rules.plague_growth_resisted if resisted else rules.plague_growth
+            if rules.plague_equilibrium:
+                grow = round(grow * min(1.0, strength))
+            r.plague = min(100, r.plague + grow)
         elif r.neglect >= rules.plague_neglect_turns and rng.random() < rules.plague_outbreak_chance * strength:
             r.plague = rules.plague_outbreak_amount
             events.append(("outbreak", r.owner, rid))
@@ -346,8 +359,17 @@ def _plague_phase(s: GameState, world: WorldMap, rules: Rules, purging: list[Arm
                 a.men = int(a.men * 0.8)
             events.append(("lost", prev, rid))
 
+    # alternativa: a Praga extingue-se sem combustível novo (ruínas que voltam a ser Terras Livres)
+    if rules.plague_burnout:
+        for rid, r in sorted(s.regions.items()):
+            if r.owner == PRAGA:
+                r.plague = max(0, r.plague - rules.plague_burnout)
+                if r.plague < rules.plague_lost:
+                    r.owner, r.order, r.garrison = FREE, 0, 0
+                    events.append(("recede", PRAGA, rid))
+
     # equilíbrio: acima do teto, a fronteira da Praga recua sozinha
-    if strength < 1.0:
+    if strength < 1.0 and rules.plague_target is not None:
         for rid, r in sorted(s.regions.items()):
             if r.owner == PRAGA and any(s.regions[n].owner != PRAGA for n in world.regions[rid].neighbors):
                 r.plague = max(0, r.plague - 10)

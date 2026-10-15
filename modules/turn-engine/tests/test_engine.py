@@ -105,6 +105,29 @@ class EngineTests(unittest.TestCase):
         for n in self.world.regions[rid].neighbors:
             self.assertIn(s.regions[n].owner, (FREE, PRAGA, 100))
 
+    def test_foci_far_from_capitals(self):
+        from praga.state import land_distances
+        s = self.fresh()
+        self.assertEqual(len(s.foci), DEFAULT.plague_foci)
+        dist = land_distances(self.world, s.foci)
+        for fid in s.factions:
+            cap = s.armies_of(fid)[0].region
+            self.assertGreaterEqual(dist.get(cap, 99), DEFAULT.foci_min_distance)
+
+    def test_every_faction_starts_with_iron(self):
+        s = self.fresh()
+        for fid in s.factions:
+            iron = sum(self.world.regions[r].base["iron"] + s.regions[r].iron_bonus for r in s.regions_of(fid))
+            self.assertGreater(iron, 0, s.factions[fid].name)
+
+    def test_well_governed_region_recedes(self):
+        s = self.fresh()
+        fid = sorted(s.factions)[0]
+        rid = s.regions_of(fid)[0]
+        s.regions[rid].plague, s.regions[rid].order = 20, 3
+        s2, _ = resolve_turn(s, self.world, DEFAULT, {fid: []})
+        self.assertLess(s2.regions[rid].plague, 20)
+
     def test_lost_region_must_be_purged_before_attack(self):
         s = self.fresh()
         lost = next(r for r, x in s.regions.items() if x.owner == PRAGA)

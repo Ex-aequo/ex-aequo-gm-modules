@@ -1,4 +1,4 @@
-# Praga — Regras núcleo (rascunho v0.2)
+# Praga — Regras núcleo (rascunho v0.3)
 
 **Estado:** rascunho para discussão. Nada aqui é final até ser marcado ✅.
 
@@ -60,10 +60,13 @@ gastam ao construir, recrutar e manter exércitos. O custo extra fica na leitura
 | **Ouro** | impostos sobre a população (todas as regiões); minas de ouro | manutenção de edifícios e exércitos, recrutamento |
 | **Comida** | pradaria, savana, floresta sazonal, costa | alimentar exércitos (1 por 100 homens/turno); crescimento da população |
 | **Madeira** | florestas, taiga, pântano | construir e subir edifícios, fortificações de madeira |
-| **Ferro** | montanhas (altitude alta), desertos | recrutar e equipar homens, fortificações de pedra |
+| **Ferro** | montanhas (altitude alta), desertos | recrutar e equipar homens (obrigatório), fortificações de pedra |
 
 🟡 A produção base de cada região sai do bioma e da altitude que já estão no mapa. Uma fação sem montanhas não tem
 ferro próprio: comercia ou conquista. É aqui que a geografia passa a dar razões para guerra e diplomacia.
+
+✅ **Ferro garantido no arranque (v0.3):** as duas regiões iniciais além da capital escolhem-se de forma a incluir ferro.
+Se não houver ferro a dois passos, a capital recebe um **veio menor** (+2 ferro/turno), indicado no relatório.
 
 ### 3.2 Infraestruturas de produção ✅ (com níveis)
 
@@ -141,7 +144,10 @@ e sem guarnição, é exatamente onde a Praga avança. A guerra tem um custo que
 | Infestada | 40–79 | população cai 5%/turno; não se recruta |
 | Perdida | 80–100 | a região perde o dono e torna-se território da Praga |
 
-**Crescimento:** +8 por turno numa região contaminada, +4 se tiver fortificação ou ordem pública 3.
+**Crescimento:** +8 por turno numa região contaminada, +4 se tiver fortificação.
+
+✅ **Recuo (v0.3):** numa região com dono, ordem pública 3 e sem fome, a Praga **desce 3 por turno** em vez de crescer.
+O perigo fica na fronteira, nas conquistas recentes e nas regiões com fome. Governar bem é uma defesa.
 
 **Alastramento:** cada região Infestada ou Perdida tenta passar a Praga a cada vizinho. A probabilidade é
 proporcional à intensidade, metade através de um rio, e nunca por mar.
@@ -152,13 +158,22 @@ Uma região Perdida só se reconquista em dois passos: purgar até abaixo de 80 
 **Crias:** regiões Perdidas geram, de tempos a tempos, bandos hostis que atacam vizinhos. Fazem o papel dos monstros
 errantes do Atlantis.
 
-✅ **Origem da Praga: dos Ermos iniciais e de surtos em regiões negligenciadas** (ordem pública 0 ou fome durante
+✅ **Origem da Praga: vários focos iniciais e surtos em regiões negligenciadas** (ordem pública 0 ou fome durante
 2+ turnos). Pune a expansão rápida e mal gerida e é o principal travão ao jogador dominante.
 
-❓ **A Praga pode consumir o mundo inteiro?**
-- A) Sim. Dá tensão real, mas o jogo pode acabar mal sem ninguém ter culpa.
-- B) **Não. Equilíbrio dinâmico: a força da Praga sobe quando ocupa pouco e desce quando ocupa muito, apontando para
-  ~20–35% do mapa.** O alvo calibra-se na simulação. **(recomendo)**
+✅ **Colocação justa (v0.3):** 6 focos iniciais, escolhidos o mais longe possível das capitais (mínimo 6 regiões) e uns
+dos outros, sempre num continente com jogadores. Os Ermos só são focos se cumprirem essa distância.
+
+❓ **Como impedir que a Praga consuma o mundo?** A simulação v0.3 mostrou que, só com o recuo, a Praga ocupa
+~93% do mapa em 200 turnos. Opções testadas (detalhe em [simulacao-v0.3.md](simulacao-v0.3.md)):
+- A) **Terras Livres resistem** (populações independentes com guarnição também fazem recuar a Praga) +
+  **extinção** (sem combustível novo, regiões perdidas viram ruínas livres) + **pressão de equilíbrio** (a Praga
+  abranda à medida que se aproxima de ~25% do mapa). Fica em 33–39% perdido entre os turnos 100 e 200.
+  **(a melhor testada)** Risco: a pressão de equilíbrio é invisível e pode parecer batota ("quanto mais a combatemos,
+  mais forte fica").
+- B) Só Terras Livres + extinção, sem pressão de equilíbrio. Regras todas visíveis, mas a Praga chega a 53% no turno 200
+  e continua a subir.
+- C) Aceitar que a Praga pode vencer o mundo ao fim de 1–2 anos de jogo real, como um "relógio" do mundo.
 
 ## 7. Entrada tardia e abandono 🟡 (lições do Atlantis)
 
@@ -175,7 +190,7 @@ errantes do Atlantis.
 - 1 turno sem ordens → **ordens permanentes**: os exércitos guarnecem e a economia continua.
 - 3 turnos (6 dias) → **Regência**: uma IA defensiva mínima mantém a fação viva; o jogador pode voltar a qualquer momento.
 - ❓ 10 turnos (20 dias) → a fação **dissolve-se**: as regiões passam a Terras Livres com ordem pública 0, e por isso
-  tornam-se alvo natural da Praga (regra B do §6). O mundo recupera o espaço sem intervenção do GM.
+  tornam-se alvo natural da Praga (surtos em regiões negligenciadas, §6). O mundo recupera o espaço sem intervenção do GM.
   O número exato é decisão tua.
 
 ## 8. Fim e vitória ✅
@@ -194,11 +209,12 @@ Cada um destes entra só se a simulação mostrar que o núcleo funciona e que f
 ## 10. Decisões
 
 **Tomadas (2026-10-15):** quatro recursos com produção automática e infraestruturas com níveis (§3);
-Praga nasce dos Ermos e de regiões negligenciadas (§6); sem objetivo formal de fim (§8).
+ferro obrigatório para recrutar, garantido no arranque (§3.1); Praga nasce de vários focos afastados das capitais e de
+regiões negligenciadas (§6); recuo da Praga em regiões bem governadas (§6); sem objetivo formal de fim (§8).
 
 **Ainda em aberto:**
 
-1. A Praga pode consumir o mundo inteiro, ou fica num equilíbrio de ~20–35% do mapa? (§6)
+1. Como impedir que a Praga consuma o mundo: A, B ou C? (§6)
 2. Proteção de entrada: **5 turnos** ou guarnição neutra? (§7)
 3. Turnos até a fação inativa se dissolver: 10 ou outro número? (§7)
 4. Alguma das 7 ordens a mais ou a menos? (§4)

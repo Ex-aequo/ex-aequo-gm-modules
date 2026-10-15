@@ -49,7 +49,7 @@ def rules_lost() -> int:
 
 
 def bot_orders(state: GameState, world: WorldMap, rules: Rules, fid: int, style: str) -> list[dict]:
-    rng = random.Random(f"bot:{fid}:{state.turn}")
+    rng = random.Random(f"bot:{state.rng_seed}:{fid}:{state.turn}")
     f = state.factions[fid]
     mine = state.regions_of(fid)
     if not mine:

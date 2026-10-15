@@ -106,6 +106,7 @@ class Region:
     plague: int = 0
     garrison: int = 0               # guarnição neutra (só Terras Livres)
     neglect: int = 0                # turnos seguidos com ordem 0 ou fome
+    iron_bonus: int = 0             # "veio menor" dado no arranque a capitais sem ferro por perto (§3.1)
 
 
 @dataclass
@@ -140,11 +141,13 @@ class GameState:
     armies: dict[int, Army]
     factions: dict[int, Faction]
     next_army: int = 1
+    rng_seed: str = ""              # varia o acaso entre corridas sem mudar o mapa
+    foci: list = field(default_factory=list)
 
     # ---------------------------------------------------------------- serialização determinística
     def to_dict(self) -> dict:
         return {
-            "turn": self.turn, "next_army": self.next_army,
+            "turn": self.turn, "next_army": self.next_army, "rng_seed": self.rng_seed, "foci": self.foci,
             "regions": {str(k): asdict(v) for k, v in sorted(self.regions.items())},
             "armies": {str(k): asdict(v) for k, v in sorted(self.armies.items())},
             "factions": {str(k): asdict(v) for k, v in sorted(self.factions.items())},
@@ -168,44 +171,97 @@ class GameState:
         return int(rules.pc_base + rules.pc_per_sqrt_region * math.sqrt(n)) if n else 0
 
 
-def new_game(world: WorldMap, rules: Rules, start: str = "small") -> GameState:
+def land_distances(world: WorldMap, sources) -> dict[int, int]:
+    """Distância em regiões (por terra) desde o conjunto de origens. Regiões inalcançáveis ficam de fora."""
+    from collections import deque
+    dist = {r: 0 for r in sources}
+    q = deque(sources)
+    while q:
+        u = q.popleft()
+        for n in world.regions[u].neighbors:
+            if n not in dist:
+                dist[n] = dist[u] + 1
+                q.append(n)
+    return dist
+
+
+def place_foci(world: WorldMap, capitals: list[int], rules: Rules) -> list[int]:
+    """Escolhe os focos iniciais da Praga (§6, decisão 1B): o mais longe possível das capitais e uns dos outros,
+    mas sempre no mesmo continente que pelo menos uma capital (um foco numa ilha vazia nunca faria nada)."""
+    to_cap = land_distances(world, capitals)
+    candidates = [rid for rid in sorted(world.regions) if rid in to_cap and to_cap[rid] >= 1]
+    # Ermos primeiro, se estiverem longe o suficiente
+    wild = [rid for rid in candidates if world.regions[rid].kind == "wild" and to_cap[rid] >= rules.foci_min_distance]
+    chosen: list[int] = []
+    for rid in sorted(wild, key=lambda r: -to_cap[r]):
+        if len(chosen) < rules.plague_foci:
+            chosen.append(rid)
+    while len(chosen) < rules.plague_foci:
+        to_foci = land_distances(world, chosen) if chosen else {}
+        best = max((r for r in candidates if r not in chosen),
+                   key=lambda r: (min(to_cap[r], to_foci.get(r, 10 ** 6)), -r), default=None)
+        if best is None:
+            break
+        chosen.append(best)
+    return chosen
+
+
+def new_game(world: WorldMap, rules: Rules, start: str = "small", rng_seed: str = "") -> GameState:
     """start='azgaar': cada fação começa com o território do Azgaar (tamanhos muito desiguais).
-    start='small': cada fação começa com a capital e as regiões vizinhas; o resto são Terras Livres guarnecidas."""
+    start='small': capital + 2 regiões (com ferro garantido, §3.1); o resto são Terras Livres guarnecidas.
+    A Praga começa em vários focos afastados das capitais (§6)."""
     regions: dict[int, Region] = {}
     for rid, info in world.regions.items():
         pop = world.start_pop[rid]
-        owner = world.start_owner[rid]
-        if info.kind == "wild":
-            regions[rid] = Region(owner=PRAGA, pop=pop * 0.3, order=0, plague=100)
-            continue
-        if start == "small":
-            owner = FREE
+        owner = FREE if start == "small" else world.start_owner[rid]
         regions[rid] = Region(owner=owner, pop=pop,
                               garrison=int(rules.neutral_garrison_base + rules.neutral_garrison_per_kpop * pop)
                               if owner == FREE else 0)
 
+    capitals = {fid: world.capitals[fid] for fid in sorted(world.factions) if fid != FREE and fid in world.capitals}
     factions: dict[int, Faction] = {}
     armies: dict[int, Army] = {}
     next_army = 1
-    for fid, f in sorted(world.factions.items()):
-        if fid == FREE:
-            continue
-        cap = world.capitals.get(fid)
-        if cap is None:
-            continue
+    for fid, cap in capitals.items():
         if start == "small":
-            for rid in (cap, *world.regions[cap].neighbors[:2]):
-                if regions[rid].owner == FREE:
-                    regions[rid].owner = fid
-                    regions[rid].garrison = 0
-        factions[fid] = Faction(id=fid, name=f["name"], stock=dict(rules.start_treasury))
+            if regions[cap].owner != FREE:      # capital já apanhada por um vizinho: usa a vizinha livre mais rica
+                cap = max((n for n in world.regions[cap].neighbors if regions[n].owner == FREE),
+                          key=lambda n: (regions[n].pop, -n), default=cap)
+                capitals[fid] = cap
+            mine = _start_regions(world, regions, cap)
+            for rid in mine:
+                regions[rid].owner, regions[rid].garrison = fid, 0
+            if not any(world.regions[r].base["iron"] for r in mine):
+                regions[cap].iron_bonus = 2
+        factions[fid] = Faction(id=fid, name=world.factions[fid]["name"], stock=dict(rules.start_treasury))
         armies[next_army] = Army(id=next_army, owner=fid, region=cap, men=rules.start_army)
         next_army += 1
 
-    # Praga inicial: os Ermos contaminam os vizinhos
-    for rid, r in regions.items():
-        if r.owner == PRAGA:
-            for n in world.regions[rid].neighbors:
-                if regions[n].owner != PRAGA:
-                    regions[n].plague = max(regions[n].plague, 45)
-    return GameState(turn=1, regions=regions, armies=armies, factions=factions, next_army=next_army)
+    foci = place_foci(world, list(capitals.values()), rules)
+    for rid in foci:
+        r = regions[rid]
+        if r.owner not in (FREE, PRAGA):
+            continue
+        r.owner, r.plague, r.order, r.garrison = PRAGA, 100, 0, 0
+        for n in world.regions[rid].neighbors:
+            if regions[n].owner == FREE:
+                regions[n].plague = max(regions[n].plague, rules.foci_neighbor_plague)
+    return GameState(turn=1, regions=regions, armies=armies, factions=factions, next_army=next_army,
+                     rng_seed=rng_seed, foci=foci)
+
+
+def _start_regions(world: WorldMap, regions: dict[int, Region], cap: int) -> list[int]:
+    """Capital + 2 regiões livres. Prefere vizinhas com ferro; se não houver, um caminho de 2 passos até ferro."""
+    free = lambda r: regions[r].owner == FREE
+    nbs = [n for n in world.regions[cap].neighbors if free(n)]
+    if not free(cap):
+        return [cap] if regions[cap].owner == FREE else []
+    iron = [n for n in nbs if world.regions[n].base["iron"]]
+    if world.regions[cap].base["iron"] or iron:
+        pick = (iron[:1] + [n for n in nbs if n not in iron[:1]])[:2]
+        return [cap, *pick]
+    for n in nbs:
+        far = [m for m in world.regions[n].neighbors if free(m) and m != cap and world.regions[m].base["iron"]]
+        if far:
+            return [cap, n, far[0]]
+    return [cap, *nbs[:2]]
