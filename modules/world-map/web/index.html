@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Praga — Mapa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Spectral:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #efe4c8;
+    --paper-2: #e4d6b3;
+    --ink: #2b2620;
+    --ink-soft: #5b5245;
+    --rule: #b9a77f;
+    --plague: #6b2f6e;
+    --plague-glow: #a5d14f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1c2a33; color: var(--ink);
+    font-family: "Spectral", Georgia, serif; }
+  #gl, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #overlay { pointer-events: none; }
+  #gl { cursor: grab; touch-action: none; }
+  #gl.dragging { cursor: grabbing; }
+
+  .card {
+    position: absolute; background: var(--paper);
+    background-image: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,.35), transparent 60%),
+                      radial-gradient(ellipse at 80% 90%, rgba(120,90,40,.12), transparent 55%);
+    border: 1px solid var(--rule); box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 8px 24px rgba(0,0,0,.35);
+    border-radius: 3px;
+  }
+  .card::before { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(91,82,69,.28); pointer-events: none; border-radius: 2px; }
+
+  #title { top: 16px; left: 16px; padding: 14px 18px 14px; width: 280px; }
+  #title h1 { font-family: "IM Fell English SC", serif; font-weight: 400; font-size: 26px; margin: 0; letter-spacing: .06em; }
+  #title .sub { font-family: "IM Fell English", serif; font-style: italic; color: var(--ink-soft); font-size: 14px; margin-top: 2px; }
+  #turnrow { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; gap: 10px; }
+  #turn { font-family: "IM Fell English SC", serif; font-size: 18px; }
+  button {
+    font-family: "IM Fell English SC", serif; font-size: 15px; color: var(--paper); background: var(--ink);
+    border: 1px solid #000; padding: 7px 12px; border-radius: 2px; cursor: pointer; letter-spacing: .04em;
+  }
+  button:hover { background: #3d352b; }
+  button:focus-visible { outline: 2px solid var(--plague-glow); outline-offset: 2px; }
+  .toggles { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .toggles label { font-size: 13px; display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;
+    padding: 3px 7px; border: 1px solid var(--rule); border-radius: 2px; background: rgba(255,255,255,.25); }
+  .toggles input { accent-color: var(--ink); margin: 0; }
+
+  #legend { left: 16px; bottom: 16px; width: 280px; max-height: 38vh; padding: 10px 14px 12px; display: flex; flex-direction: column; }
+  #legend h2, #info h2 { font-family: "IM Fell English SC", serif; font-weight: 400; font-size: 16px; margin: 0 0 6px; letter-spacing: .05em;
+    border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+  #factions { overflow: auto; font-size: 13px; padding-right: 4px; }
+  .fac { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 2px 0; }
+  .fac .sw { width: 14px; height: 10px; border: 1px solid rgba(0,0,0,.45); border-radius: 1px; }
+  .fac .n { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .fac.dead { opacity: .4; text-decoration: line-through; }
+  .fac.praga .sw { background: repeating-linear-gradient(45deg, var(--plague) 0 3px, #2a1530 3px 6px); }
+
+  #info { top: 16px; right: 16px; width: 270px; padding: 12px 16px 14px; display: none; }
+  #info.show { display: block; }
+  #info .name { font-family: "IM Fell English", serif; font-size: 22px; line-height: 1.1; }
+  #info .kind { font-style: italic; color: var(--ink-soft); font-size: 13px; margin-bottom: 8px; }
+  #info dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 13.5px; }
+  #info dt { color: var(--ink-soft); }
+  #info dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: rgba(0,0,0,.12); border-radius: 1px; margin-top: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--plague), var(--plague-glow)); }
+
+  #log { right: 16px; bottom: 16px; width: 270px; max-height: 26vh; overflow: auto; padding: 10px 14px; font-size: 13px; }
+  #log p { margin: 0 0 4px; }
+  #log p b { font-family: "IM Fell English SC", serif; font-weight: 400; }
+  #hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); color: rgba(239,228,200,.75);
+    font-style: italic; font-size: 13px; pointer-events: none; text-shadow: 0 1px 2px #000; }
+  #err { position: absolute; inset: 0; display: none; place-items: center; color: var(--paper); font-size: 18px; text-align: center; padding: 24px; }
+
+  @media (max-width: 720px) {
+    #title { width: auto; right: 16px; }
+    #legend { display: none; }
+    #log { display: none; }
+    #info { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="overlay"></canvas>
+
+<section id="title" class="card">
+  <h1 id="worldname">Praga</h1>
+  <div class="sub">Protótipo de mapa — dados Azgaar, render próprio</div>
+  <div id="turnrow">
+    <span id="turn">Turno 1</span>
+    <button id="next" type="button">Avançar turno</button>
+  </div>
+  <div class="toggles">
+    <label><input type="checkbox" id="tBorders" checked> Fronteiras</label>
+    <label><input type="checkbox" id="tPlague" checked> Praga</label>
+    <label><input type="checkbox" id="tRivers" checked> Rios</label>
+    <label><input type="checkbox" id="tLabels" checked> Nomes</label>
+  </div>
+</section>
+
+<section id="legend" class="card">
+  <h2>Fações</h2>
+  <div id="factions"></div>
+</section>
+
+<section id="info" class="card" aria-live="polite"></section>
+<section id="log" class="card"><h2 style="font-family:'IM Fell English SC';font-weight:400;font-size:16px;margin:0 0 6px;border-bottom:1px solid var(--rule);padding-bottom:4px">Crónica</h2><div id="logbody"></div></section>
+<div id="hint">Arrasta para mover · roda para aproximar · clica numa região</div>
+<div id="err"></div>
+
+<script type="module" src="map.js"></script>
+</body>
+</html>

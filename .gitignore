@@ -1,0 +1,18 @@
+# dados gerados (reproduzíveis a partir de worlds/*.toml)
+build/
+modules/*/build/
+modules/*/web/data/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# node / ferramentas
+node_modules/
+fmg/
+
+# sistema
+.DS_Store
+Thumbs.db
