@@ -648,7 +648,7 @@ void main() { o = vec4(texture(uTile, vUv).rgb, 1.0); }`));
     if (ui.rivers) {
       ov.strokeStyle = "rgba(52, 92, 112, 0.85)";
       for (const r of riverPaths) {
-        ov.lineWidth = Math.max(0.6 / z, r.w * 0.55);
+        ov.lineWidth = Math.min(Math.max(0.6 / z, r.w * 0.55), 2.6 / z);   // no máximo ~2,6 px no ecrã
         strokeKnown(r.pts, r.reg);
       }
       ov.setLineDash([3 / z, 3 / z]);
