@@ -128,9 +128,60 @@ class EngineTests(unittest.TestCase):
         s2, _ = resolve_turn(s, self.world, DEFAULT, {fid: []})
         self.assertLess(s2.regions[rid].plague, 20)
 
-    def test_lost_region_must_be_purged_before_attack(self):
+    # ------------------------------------------------------------- Praga como evento do GM (§6.1)
+    def with_focus(self):
         s = self.fresh()
-        lost = next(r for r, x in s.regions.items() if x.owner == PRAGA)
+        focus = s.foci[0]
+        s, ev = resolve_turn(s, self.world, DEFAULT, {}, [{"type": "plague_state", "value": "active"},
+                                                          {"type": "plague_focus", "region": focus}])
+        return s, focus, ev
+
+    def test_plague_starts_dormant_without_foci(self):
+        s = self.fresh()
+        self.assertFalse(s.plague_active)
+        self.assertFalse([r for r in s.regions.values() if r.owner == PRAGA or r.plague])
+
+    def test_gm_focus_and_activation(self):
+        s, focus, ev = self.with_focus()
+        self.assertTrue(s.plague_active)
+        self.assertEqual(s.regions[focus].owner, PRAGA)
+        self.assertTrue(any(e[0] == "gm" and "desperta" in e[2] for e in ev))
+
+    def test_gm_invalid_orders_are_rejected(self):
+        from praga.engine import validate_gm
+        s = self.fresh()
+        acc, errs = validate_gm(s, self.world, DEFAULT, [{"type": "plague_state", "value": "on"},
+                                                         {"type": "plague_intensity", "value": "extreme"},
+                                                         {"type": "plague_focus", "region": 10 ** 6}])
+        self.assertEqual(acc, [])
+        self.assertEqual(len(errs), 3)
+
+    def test_dormant_plague_does_not_grow_or_spread(self):
+        s, focus, _ = self.with_focus()
+        s, _ = resolve_turn(s, self.world, DEFAULT, {}, [{"type": "plague_state", "value": "dormant"}])
+        before = {rid: r.plague for rid, r in s.regions.items()}
+        for _ in range(5):
+            s, _ = resolve_turn(s, self.world, DEFAULT, {})
+        for rid, r in s.regions.items():
+            if r.owner != PRAGA:
+                self.assertLessEqual(r.plague, before[rid])
+
+    def test_purge_works_while_dormant(self):
+        s, focus, _ = self.with_focus()
+        s, _ = resolve_turn(s, self.world, DEFAULT, {}, [{"type": "plague_state", "value": "dormant"}])
+        nb = self.world.regions[focus].neighbors[0]
+        fid = sorted(s.factions)[0]
+        s.regions[nb].owner, s.regions[nb].plague, s.regions[nb].order = fid, 30, 1
+        a = s.armies_of(fid)[0]
+        a.region = nb
+        s, _ = resolve_turn(s, self.world, DEFAULT, {fid: [{"type": "purge", "army": a.id}]})
+        self.assertLess(s.regions[nb].plague, 30)
+
+    def test_deterministic_with_gm(self):
+        self.assertEqual(self.with_focus()[0].digest(), self.with_focus()[0].digest())
+
+    def test_lost_region_must_be_purged_before_attack(self):
+        s, lost, _ = self.with_focus()
         nb = self.world.regions[lost].neighbors[0]
         fid = sorted(s.factions)[0]
         s.regions[nb].owner = fid

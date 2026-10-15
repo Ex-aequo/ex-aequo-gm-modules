@@ -142,12 +142,15 @@ class GameState:
     factions: dict[int, Faction]
     next_army: int = 1
     rng_seed: str = ""              # varia o acaso entre corridas sem mudar o mapa
-    foci: list = field(default_factory=list)
+    foci: list = field(default_factory=list)   # sugestões de focos para o GM (não ativos no arranque)
+    plague_active: bool = False     # a Praga começa adormecida; só o GM a desperta (§6.1)
+    plague_intensity: str = "normal"
 
     # ---------------------------------------------------------------- serialização determinística
     def to_dict(self) -> dict:
         return {
             "turn": self.turn, "next_army": self.next_army, "rng_seed": self.rng_seed, "foci": self.foci,
+            "plague_active": self.plague_active, "plague_intensity": self.plague_intensity,
             "regions": {str(k): asdict(v) for k, v in sorted(self.regions.items())},
             "armies": {str(k): asdict(v) for k, v in sorted(self.armies.items())},
             "factions": {str(k): asdict(v) for k, v in sorted(self.factions.items())},
@@ -209,7 +212,7 @@ def place_foci(world: WorldMap, capitals: list[int], rules: Rules) -> list[int]:
 def new_game(world: WorldMap, rules: Rules, start: str = "small", rng_seed: str = "") -> GameState:
     """start='azgaar': cada fação começa com o território do Azgaar (tamanhos muito desiguais).
     start='small': capital + 2 regiões (com ferro garantido, §3.1); o resto são Terras Livres guarnecidas.
-    A Praga começa em vários focos afastados das capitais (§6)."""
+    A Praga começa adormecida; os focos calculados são só sugestões para o GM (§6.1)."""
     regions: dict[int, Region] = {}
     for rid, info in world.regions.items():
         pop = world.start_pop[rid]
@@ -237,15 +240,8 @@ def new_game(world: WorldMap, rules: Rules, start: str = "small", rng_seed: str 
         armies[next_army] = Army(id=next_army, owner=fid, region=cap, men=rules.start_army)
         next_army += 1
 
+    # A Praga começa adormecida e sem focos: o GM decide quando e onde ela desperta (§6.1).
     foci = place_foci(world, list(capitals.values()), rules)
-    for rid in foci:
-        r = regions[rid]
-        if r.owner not in (FREE, PRAGA):
-            continue
-        r.owner, r.plague, r.order, r.garrison = PRAGA, 100, 0, 0
-        for n in world.regions[rid].neighbors:
-            if regions[n].owner == FREE:
-                regions[n].plague = max(regions[n].plague, rules.foci_neighbor_plague)
     return GameState(turn=1, regions=regions, armies=armies, factions=factions, next_army=next_army,
                      rng_seed=rng_seed, foci=foci)
 

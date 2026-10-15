@@ -1,4 +1,4 @@
-# Praga — Regras núcleo (rascunho v0.3)
+# Praga — Regras núcleo (rascunho v0.4)
 
 **Estado:** rascunho para discussão. Nada aqui é final até ser marcado ✅.
 
@@ -119,6 +119,7 @@ gerir tudo, e a periferia esquecida é onde a Praga entra (§6).
 
 ## 5. Ordem de resolução 🟡
 
+0. **Decisões do GM** — estado, intensidade e focos da Praga (§6.1).
 1. **Diplomacia** — as posturas novas valem para este turno.
 2. **Economia** — produção automática dos quatro recursos, manutenção de edifícios e exércitos. Exército sem comida perde 10% dos homens.
 3. **Movimento** — simultâneo, um passo de cada vez. Dois exércitos hostis que se cruzam numa fronteira param e combatem.
@@ -126,7 +127,7 @@ gerir tudo, e a periferia esquecida é onde a Praga entra (§6).
 5. **Conquista** — se o atacante vence e não sobram defensores, a região muda de dono com ordem pública 0
    (sem rendimento durante 2 turnos).
 6. **Construção e recrutamento.**
-7. **Praga** — purga → crescimento → alastramento → colapso.
+7. **Praga** — purga (sempre) → recuo/crescimento → alastramento → colapso → crias (só com a Praga ativa).
 8. **Eventos** — ponto de ligação para o módulo de mestre de jogo e narrativa.
 9. **Relatórios.**
 
@@ -161,19 +162,26 @@ errantes do Atlantis.
 ✅ **Origem da Praga: vários focos iniciais e surtos em regiões negligenciadas** (ordem pública 0 ou fome durante
 2+ turnos). Pune a expansão rápida e mal gerida e é o principal travão ao jogador dominante.
 
-✅ **Colocação justa (v0.3):** 6 focos iniciais, escolhidos o mais longe possível das capitais (mínimo 6 regiões) e uns
-dos outros, sempre num continente com jogadores. Os Ermos só são focos se cumprirem essa distância.
+✅ **Focos sugeridos (v0.3/v0.4):** o motor calcula 6 focos possíveis, o mais longe possível das capitais (mínimo 6
+regiões) e uns dos outros, sempre num continente com jogadores. **Não estão ativos no arranque**: são sugestões para o GM.
 
-❓ **Como impedir que a Praga consuma o mundo?** A simulação v0.3 mostrou que, só com o recuo, a Praga ocupa
-~93% do mapa em 200 turnos. Opções testadas (detalhe em [simulacao-v0.3.md](simulacao-v0.3.md)):
-- A) **Terras Livres resistem** (populações independentes com guarnição também fazem recuar a Praga) +
-  **extinção** (sem combustível novo, regiões perdidas viram ruínas livres) + **pressão de equilíbrio** (a Praga
-  abranda à medida que se aproxima de ~25% do mapa). Fica em 33–39% perdido entre os turnos 100 e 200.
-  **(a melhor testada)** Risco: a pressão de equilíbrio é invisível e pode parecer batota ("quanto mais a combatemos,
-  mais forte fica").
-- B) Só Terras Livres + extinção, sem pressão de equilíbrio. Regras todas visíveis, mas a Praga chega a 53% no turno 200
-  e continua a subir.
-- C) Aceitar que a Praga pode vencer o mundo ao fim de 1–2 anos de jogo real, como um "relógio" do mundo.
+✅ **A Praga pode consumir o mundo (decisão C, v0.4).** Não há travão automático. O ritmo é decidido pelo GM (§6.1).
+
+### 6.1 A Praga é um evento do mestre de jogo ✅
+
+- ✅ **O GM liga e desliga a Praga** sempre que entender. No arranque está **adormecida**.
+- ✅ **Adormecida** = não cresce, não alastra, não há surtos nem crias. O que já foi perdido continua perdido, mas a
+  **purga funciona** e as regiões podem ser reconquistadas. O recuo em regiões bem governadas continua.
+- ✅ **O GM também pode** abrir um foco numa região à escolha e escolher a intensidade:
+  **fraca** (×0,5), **normal** (×1) ou **forte** (×1,5) — multiplica crescimento, alastramento, surtos e crias.
+- ✅ **O GM não joga no mesmo mundo.**
+- 🟡 As decisões do GM entram como ordens: aplicam-se no início da resolução do turno seguinte (fase 0), nunca a meio.
+- 🟡 **Tudo o que o GM faz aparece na crónica pública do turno** ("A Praga desperta.", "Um foco da Praga abre-se em
+  Ialalia."). Os jogadores sabem *o quê*, não sabem *porquê* nem *o que vem a seguir*.
+
+**O que a simulação diz ao GM** ([simulacao-v0.4.md](simulacao-v0.4.md)): a Praga funciona como um **trinco**. O que se
+perde enquanto está ativa não volta sozinho quando adormece. Com bots, cada turno ativo custa em média ~0,7% do mapa
+de forma permanente: 30 turnos ligada e 30 desligada levam a ~70% do mapa perdido em 200 turnos.
 
 ## 7. Entrada tardia e abandono 🟡 (lições do Atlantis)
 
@@ -212,10 +220,12 @@ Cada um destes entra só se a simulação mostrar que o núcleo funciona e que f
 ferro obrigatório para recrutar, garantido no arranque (§3.1); Praga nasce de vários focos afastados das capitais e de
 regiões negligenciadas (§6); recuo da Praga em regiões bem governadas (§6); sem objetivo formal de fim (§8).
 
+**v0.4:** a Praga pode consumir o mundo; é um evento ligado e desligado pelo GM, que também abre focos e escolhe a
+intensidade; o GM não joga no mesmo mundo (§6.1).
+
 **Ainda em aberto:**
 
-1. Como impedir que a Praga consuma o mundo: A, B ou C? (§6)
-2. Proteção de entrada: **5 turnos** ou guarnição neutra? (§7)
-3. Turnos até a fação inativa se dissolver: 10 ou outro número? (§7)
-4. Alguma das 7 ordens a mais ou a menos? (§4)
-5. A proposta de infraestruturas (§3.2) serve: um edifício por região, níveis 1–3, veios de ouro raros?
+1. Proteção de entrada: **5 turnos** ou guarnição neutra? (§7)
+2. Turnos até a fação inativa se dissolver: 10 ou outro número? (§7)
+3. Alguma das 7 ordens a mais ou a menos? (§4)
+4. A proposta de infraestruturas (§3.2) serve: um edifício por região, níveis 1–3, veios de ouro raros?

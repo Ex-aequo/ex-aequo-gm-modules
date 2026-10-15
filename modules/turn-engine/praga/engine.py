@@ -1,7 +1,7 @@
 """Resolução de um turno, pela ordem de fases de docs/regras-nucleo.md §5.
 
-resolve_turn(state, world, rules, orders) -> (novo estado, eventos)
-Determinístico: o mesmo estado + as mesmas ordens dão sempre o mesmo resultado.
+resolve_turn(state, world, rules, orders, gm_orders) -> (novo estado, eventos)
+Determinístico: o mesmo estado + as mesmas ordens (de jogadores e do GM) dão sempre o mesmo resultado.
 """
 from __future__ import annotations
 
@@ -88,10 +88,14 @@ def _fight(attack: float, defend: float, rng: random.Random, rules: Rules) -> tu
 
 
 # --------------------------------------------------------------------------- turno
-def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[int, list[dict]]):
+def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[int, list[dict]],
+                 gm_orders: list[dict] | None = None):
     s = copy.deepcopy(state)
     events: list[tuple] = []
     turn = s.turn
+
+    # 0. decisões do mestre de jogo (§6.1)
+    _apply_gm(s, world, rules, gm_orders or [], events)
 
     # inatividade (§7)
     for fid, f in sorted(s.factions.items()):
@@ -290,47 +294,47 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
 
 
 def plague_strength(state: GameState, rules: Rules) -> float:
-    lost = sum(1 for r in state.regions.values() if r.owner == PRAGA) / len(state.regions)
-    if rules.plague_equilibrium:
-        return max(0.2, min(2.0, (rules.plague_equilibrium / max(lost, 0.01)) ** 1.5))
-    if rules.plague_target is None:
-        return 1.0
-    lo, hi = rules.plague_target
-    return 1.6 if lost < lo else 0.35 if lost > hi else 1.0
+    """Multiplicador da Praga: 0 quando adormecida; senão a intensidade escolhida pelo GM (§6)."""
+    if not state.plague_active:
+        return 0.0
+    return rules.plague_intensities[state.plague_intensity]
 
 
 def _plague_phase(s: GameState, world: WorldMap, rules: Rules, purging: list[Army], events: list):
     rng = _rng(world, s, "plague")
     strength = plague_strength(s, rules)
+    active = strength > 0
 
-    # purga
+    # purga: funciona sempre, mesmo com a Praga adormecida (é a janela dos jogadores)
     for a in purging:
         if a.id not in s.armies:
             continue
         r = s.regions[a.region]
         r.plague = max(0, r.plague - int(rules.purge_base + rules.purge_per_100_men * a.men / 100))
         a.men = int(a.men * (1 - rules.purge_loss))
+        if r.owner == PRAGA and r.plague < rules.plague_lost:
+            r.owner, r.order, r.garrison = FREE, 0, 0
+            events.append(("purged", a.owner, a.region))
 
-    # crescimento, recuo (v0.3) e surtos
+    # recuo em regiões bem governadas (sempre) e crescimento + surtos (só com a Praga ativa)
     for rid, r in sorted(s.regions.items()):
         if r.owner == PRAGA:
             continue
         if r.plague >= rules.plague_contaminated:
             owner = s.factions.get(r.owner)
-            well_governed = owner is not None and r.order == 3 and not owner.famine
-            if r.owner == FREE and rules.free_lands_resist and r.garrison >= rules.neutral_garrison_base:
-                well_governed = True
-            if well_governed and rules.plague_recede:
+            if owner is not None and r.order == 3 and not owner.famine and rules.plague_recede:
                 r.plague = max(0, r.plague - rules.plague_recede)
                 continue
-            resisted = r.fort >= 1 or r.order == 3
-            grow = rules.plague_growth_resisted if resisted else rules.plague_growth
-            if rules.plague_equilibrium:
-                grow = round(grow * min(1.0, strength))
-            r.plague = min(100, r.plague + grow)
-        elif r.neglect >= rules.plague_neglect_turns and rng.random() < rules.plague_outbreak_chance * strength:
+            if active:
+                resisted = r.fort >= 1 or r.order == 3
+                grow = rules.plague_growth_resisted if resisted else rules.plague_growth
+                r.plague = min(100, r.plague + max(1, round(grow * strength)))
+        elif active and r.neglect >= rules.plague_neglect_turns and rng.random() < rules.plague_outbreak_chance * strength:
             r.plague = rules.plague_outbreak_amount
             events.append(("outbreak", r.owner, rid))
+
+    if not active:
+        return
 
     # alastramento (a partir de uma fotografia, para não depender da ordem de iteração)
     snap = {rid: (r.owner, r.plague) for rid, r in s.regions.items()}
@@ -349,33 +353,7 @@ def _plague_phase(s: GameState, world: WorldMap, rules: Rules, purging: list[Arm
     # colapso
     for rid, r in sorted(s.regions.items()):
         if r.owner != PRAGA and r.plague >= rules.plague_lost:
-            prev = r.owner
-            r.owner, r.garrison, r.project = PRAGA, 0, None
-            if r.building:
-                r.level -= 1
-                if r.level <= 0:
-                    r.building, r.level = None, 0
-            for a in s.armies_in(rid):
-                a.men = int(a.men * 0.8)
-            events.append(("lost", prev, rid))
-
-    # alternativa: a Praga extingue-se sem combustível novo (ruínas que voltam a ser Terras Livres)
-    if rules.plague_burnout:
-        for rid, r in sorted(s.regions.items()):
-            if r.owner == PRAGA:
-                r.plague = max(0, r.plague - rules.plague_burnout)
-                if r.plague < rules.plague_lost:
-                    r.owner, r.order, r.garrison = FREE, 0, 0
-                    events.append(("recede", PRAGA, rid))
-
-    # equilíbrio: acima do teto, a fronteira da Praga recua sozinha
-    if strength < 1.0 and rules.plague_target is not None:
-        for rid, r in sorted(s.regions.items()):
-            if r.owner == PRAGA and any(s.regions[n].owner != PRAGA for n in world.regions[rid].neighbors):
-                r.plague = max(0, r.plague - 10)
-                if r.plague < rules.plague_lost:
-                    r.owner, r.order, r.garrison = FREE, 0, 50
-                    events.append(("recede", PRAGA, rid))
+            _collapse(s, rid, events)
 
     # crias da Praga atacam vizinhos
     for rid, r in sorted(s.regions.items()):
@@ -398,3 +376,77 @@ def _plague_phase(s: GameState, world: WorldMap, rules: Rules, purging: list[Arm
         if win:
             tr.plague = min(100, tr.plague + rules.spawn_plague_hit)
             events.append(("spawn", tr.owner, tgt))
+
+
+def _collapse(s: GameState, rid: int, events: list):
+    r = s.regions[rid]
+    prev = r.owner
+    r.owner, r.garrison, r.project, r.plague = PRAGA, 0, None, max(r.plague, 80)
+    if r.building:
+        r.level -= 1
+        if r.level <= 0:
+            r.building, r.level = None, 0
+    for a in s.armies_in(rid):
+        a.men = int(a.men * 0.8)
+    events.append(("lost", prev, rid))
+
+
+# --------------------------------------------------------------------------- ordens do GM
+INTENSITY_PT = {"weak": "fraca", "normal": "normal", "strong": "forte"}
+
+
+def validate_gm(state: GameState, world: WorldMap, rules: Rules, gm_orders: list[dict]) -> tuple[list[dict], list[str]]:
+    """Ordens do mestre de jogo (§6.1). Formatos:
+      {"type": "plague_state", "value": "active" | "dormant"}
+      {"type": "plague_focus", "region": 115}
+      {"type": "plague_intensity", "value": "weak" | "normal" | "strong"}
+    """
+    accepted, errors = [], []
+    for i, o in enumerate(gm_orders or []):
+        t, err = o.get("type"), None
+        if t == "plague_state":
+            if o.get("value") not in ("active", "dormant"):
+                err = "estado tem de ser 'active' ou 'dormant'"
+        elif t == "plague_focus":
+            rid = o.get("region")
+            if rid not in state.regions:
+                err = "região inexistente"
+            elif state.regions[rid].owner == PRAGA:
+                err = "a região já está perdida para a Praga"
+        elif t == "plague_intensity":
+            if o.get("value") not in rules.plague_intensities:
+                err = f"intensidade tem de ser uma de {sorted(rules.plague_intensities)}"
+        else:
+            err = f"ordem de GM desconhecida '{t}'"
+        if err:
+            errors.append(f"GM ordem {i} ({t}): {err}")
+        else:
+            accepted.append(o)
+    return accepted, errors
+
+
+def _apply_gm(s: GameState, world: WorldMap, rules: Rules, gm_orders: list[dict], events: list):
+    """Fase 0: as decisões do GM aplicam-se antes de tudo e ficam na crónica do turno."""
+    accepted, errors = validate_gm(s, world, rules, gm_orders)
+    for e in errors:
+        events.append(("gm_rejected", 0, e))
+    for o in accepted:
+        t = o["type"]
+        if t == "plague_state":
+            was = s.plague_active
+            s.plague_active = o["value"] == "active"
+            if s.plague_active != was:
+                events.append(("gm", 0, "A Praga desperta." if s.plague_active else "A Praga adormece."))
+        elif t == "plague_intensity":
+            if o["value"] != s.plague_intensity:
+                s.plague_intensity = o["value"]
+                events.append(("gm", 0, f"A Praga torna-se {INTENSITY_PT[o['value']]}."))
+        elif t == "plague_focus":
+            rid = o["region"]
+            _collapse(s, rid, events)
+            s.regions[rid].plague = 100
+            for n in world.regions[rid].neighbors:
+                nr = s.regions[n]
+                if nr.owner != PRAGA:
+                    nr.plague = max(nr.plague, rules.foci_neighbor_plague)
+            events.append(("gm", 0, f"Um foco da Praga abre-se em {world.regions[rid].name}."))

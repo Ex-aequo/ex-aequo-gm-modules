@@ -26,6 +26,59 @@ MAX_ACTIVE = 25
 NEAR = 10                          # "perto da Praga" = capital a ≤10 regiões de um foco
 
 
+# --------------------------------------------------------------------------- políticas de GM simuladas
+# O GM real é uma pessoa. Estas políticas existem só para medir o que acontece com cada estilo de condução.
+def gm_never(state, world, rules, total):
+    return []
+
+
+def gm_always(state, world, rules, total):
+    """Desperta a Praga no turno 10, com todos os focos sugeridos, e nunca a desliga."""
+    if state.turn == 10:
+        return [{"type": "plague_state", "value": "active"}] + [{"type": "plague_focus", "region": r} for r in state.foci]
+    return []
+
+
+def gm_pulse(state, world, rules, total, on=30, off=30):
+    """Ciclos: ativa 30 turnos, adormece 30. Abre um foco novo em cada despertar."""
+    t = state.turn - 10
+    if t < 0:
+        return []
+    phase = t % (on + off)
+    if phase == 0:
+        cycle = t // (on + off)
+        foci = [r for r in state.foci if state.regions[r].owner != PRAGA]
+        out = [{"type": "plague_state", "value": "active"}]
+        if foci:
+            out.append({"type": "plague_focus", "region": foci[cycle % len(foci)]})
+        return out
+    if phase == on:
+        return [{"type": "plague_state", "value": "dormant"}]
+    return []
+
+
+def gm_leader(state, world, rules, total):
+    """Anti-domínio: desperta quando uma fação passa 8% do mapa, com um foco junto à periferia dela;
+    adormece quando a Praga passa 20% do mapa ou o líder desce abaixo de 6%."""
+    sizes = Counter(r.owner for r in state.regions.values() if r.owner > 0)
+    leader, size = sizes.most_common(1)[0] if sizes else (None, 0)
+    lost = sum(1 for r in state.regions.values() if r.owner == PRAGA) / total
+    if not state.plague_active and leader and size / total > 0.08:
+        mine = set(state.regions_of(leader))
+        dist = land_distances(world, list(mine))
+        border = [r for r, d in dist.items() if 2 <= d <= 4 and state.regions[r].owner in (FREE,) and r not in mine]
+        out = [{"type": "plague_state", "value": "active"}]
+        if border:
+            out.append({"type": "plague_focus", "region": sorted(border)[len(border) // 2]})
+        return out
+    if state.plague_active and (lost > 0.20 or size / total < 0.06):
+        return [{"type": "plague_state", "value": "dormant"}]
+    return []
+
+
+GM_POLICIES = {"never": gm_never, "always": gm_always, "pulse": gm_pulse, "leader": gm_leader}
+
+
 def gini(xs: list[int]) -> float:
     xs = sorted(xs)
     n, total = len(xs), sum(xs)
@@ -34,7 +87,7 @@ def gini(xs: list[int]) -> float:
     return sum((2 * i - n + 1) * x for i, x in enumerate(xs)) / (n * total)
 
 
-def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str) -> dict:
+def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=gm_always) -> dict:
     state = new_game(world, rules, start, rng_seed)
     fids = sorted(state.factions)
     style = {fid: STYLES[i % len(STYLES)] for i, fid in enumerate(fids)}
@@ -57,9 +110,9 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str) -> d
         orders = {fid: bot_orders(state, world, rules, fid, style[fid])
                   for fid, f in sorted(state.factions.items())
                   if f.active and not (fid in abandon and turn >= abandon[fid])}
-        state, events = resolve_turn(state, world, rules, orders)
+        state, events = resolve_turn(state, world, rules, orders, gm(state, world, rules, total))
         kinds = Counter(e[0] for e in events)
-        event_log += [(turn, *e) for e in events if e[0] in ("dissolve", "regency", "eliminated")]
+        event_log += [(turn, *e) for e in events if e[0] in ("dissolve", "regency", "eliminated", "gm")]
         owners = Counter(r.owner for r in state.regions.values())
         sizes = [owners.get(f.id, 0) for f in state.factions.values() if f.active]
         history.append({
@@ -69,7 +122,7 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str) -> d
             "free": owners.get(FREE, 0) / total,
             "active": len(sizes), "largest": max(sizes, default=0), "gini": round(gini(sizes), 3),
             "men": sum(a.men for a in state.armies.values() if a.owner > 0),
-            "strength": plague_strength(state, rules),
+            "strength": plague_strength(state, rules), "active_plague": state.plague_active,
             "conquests": kinds["conquest"], "lost_regions": kinds["lost"], "outbreaks": kinds["outbreak"],
             "rejected": sum(e[2] for e in events if e[0] == "rejected"),
         })
@@ -95,6 +148,7 @@ def main():
     ap.add_argument("--start", choices=("small", "azgaar"), default="small")
     ap.add_argument("--out", default="build/sim")
     ap.add_argument("--set", action="append", default=[], metavar="CAMPO=JSON")
+    ap.add_argument("--gm", choices=sorted(GM_POLICIES), default="always", help="política de GM simulada")
     args = ap.parse_args()
 
     rules = DEFAULT
@@ -109,7 +163,7 @@ def main():
     world = WorldMap.load(args.world, rules)
 
     t0 = time.perf_counter()
-    runs = [simulate(world, rules, args.start, args.turns, f"s{i}") for i in range(args.seeds)]
+    runs = [simulate(world, rules, args.start, args.turns, f"s{i}", GM_POLICIES[args.gm]) for i in range(args.seeds)]
     elapsed = time.perf_counter() - t0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -133,7 +187,9 @@ def main():
           f" = {sum(near) / max(1, len(near)):.0%} · longe {sum(far)}/{len(far)} = {sum(far) / max(1, len(far)):.0%}")
     minlost = min(min(h["lost"] for h in r["history"][50:]) for r in runs) if args.turns > 50 else None
     print(f"mínimo da Praga depois do turno 50: {minlost:.1%}" if minlost is not None else "")
-    print("entradas/eliminações (seed 0):", [e[:3] for e in runs[0]["events"] if e[1] in ("entry", "eliminated")])
+    on = [statistics.mean(h["active_plague"] for h in r["history"]) for r in runs]
+    print(f"Praga ativa em {statistics.mean(on):.0%} dos turnos · crónica do GM (seed 0):",
+          [(e[0], e[3]) for e in runs[0]["events"] if e[1] == "gm"][:8])
 
 
 if __name__ == "__main__":

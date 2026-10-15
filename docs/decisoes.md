@@ -29,3 +29,14 @@ Formato: data — decisão — porquê — o que fica em aberto.
 - **Decisão:** nenhum asset gráfico gerado por Leonardo.ai ou semelhantes.
 - **Porquê:** resultados demasiado aleatórios para um estilo coerente. Determinismo: mesma entrada, mesma imagem.
 - **Consequência:** o que não sai de código precisa de packs com licença comercial verificada ou de um ilustrador.
+
+## 2026-10-15 — A Praga é um evento do mestre de jogo
+
+- **Decisão:** a Praga não tem travão automático; o GM liga e desliga, abre focos e escolhe a intensidade.
+  Adormecida não cresce nem alastra, mas o perdido continua perdido. O GM não joga no mesmo mundo.
+- **Porquê:** três versões de regras automáticas (teto, recuo, travas combinadas) não estabilizaram a Praga sem
+  mecanismos invisíveis. Um GM humano é o equilíbrio, e encaixa no objetivo de ter mestre de jogo e narrativa.
+- **Consequência:** as ordens do GM são um segundo canal de entrada do motor, determinístico e registado na crónica.
+  O motor sozinho já não garante um mundo jogável: depende de boas decisões do GM.
+- **Em aberto:** painel do GM (hoje as ordens são JSON); ferramentas de leitura para o GM decidir (quanto do mapa está
+  perdido, quem lidera, onde abrir focos).

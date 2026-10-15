@@ -71,18 +71,14 @@ class Rules:
     spawn_chance: float = 0.05
     spawn_men: int = 150
     spawn_plague_hit: int = 30
-    # v0.3: recuo natural em regiões bem governadas (decisão 2B)
+    # recuo em regiões bem governadas (decisão 2B, v0.3) — funciona mesmo com a Praga adormecida
     plague_recede: int = 3               # por turno, com ordem pública 3 e sem fome
-    # focos iniciais (decisão 1B)
+    # sugestões de focos para o GM (decisão 1B): longe das capitais e uns dos outros
     plague_foci: int = 6
     foci_min_distance: int = 6           # regiões até à capital mais próxima
     foci_neighbor_plague: int = 30
-    # alternativas em estudo (desligadas por defeito; ver docs/simulacao-v0.3.md)
-    free_lands_resist: bool = False      # Terras Livres com guarnição também fazem recuar a Praga
-    plague_burnout: int = 0              # regiões perdidas perdem N/turno; abaixo de 80 viram ruínas livres
-    plague_equilibrium: float | None = None  # alvo (fração do mapa); força = (alvo/perdido)^1.5 em crescimento e alastramento
-    # equilíbrio por "teto" da v0.2: falhou na simulação; desligado por defeito
-    plague_target: tuple | None = None
+    # v0.4: a Praga é um evento do GM (§6.1). Intensidade multiplica crescimento, alastramento, surtos e crias.
+    plague_intensities = {"weak": 0.5, "normal": 1.0, "strong": 1.5}
 
     # §7 entrada e abandono
     protection_turns: int = 5
