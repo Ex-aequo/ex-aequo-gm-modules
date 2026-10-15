@@ -89,3 +89,20 @@ Formato: data — decisão — porquê — o que fica em aberto.
   haver jogadores, é preciso servir o mapa por jogador: tiles da base só das regiões conhecidas e um `world.json`
   filtrado. Junta-se bem com os tiles por nível de zoom que já estavam previstos.
 
+
+## 2026-10-15 — Reinos sem jogador são guardiões; sem metas de equilíbrio
+
+- **Decisão:** o mundo é gerado com todos os reinos; os que não têm jogador são reinos-guardiões governados pelo motor.
+  Guardiões defendem, constroem, purgam e expandem só para Terras Livres; nunca atacam reinos. Quem chega recebe o
+  guardião mais intacto. Um reino abandonado passa a guardião em vez de se dissolver. Os jogadores sabem quem é guardião.
+- **Sem metas de equilíbrio:** as regras não são afinadas para atingir números (eliminações, tamanho do maior reino,
+  Praga). "Os jogadores fazem o jogo." As simulações ficam como informação para o GM, não como critério.
+- **Escala:** primeiro 25 e 50 reinos. 100/150 ficam como verificação.
+- **Defeitos de escala corrigidos:** focos sugeridos e rumores medem-se em distância do mundo (não em regiões).
+  Os focos ficam ao alcance dos rumores.
+- **Correção de regras encontrada pelo caminho:** dois ataques simultâneos à mesma Terra Livre podiam fazer o segundo
+  atacante conquistar a região ao primeiro sem hostilidade declarada. Agora esse ataque não acontece.
+- **Riscos registados:**
+  - Guardiões nunca retaliam: são presa fácil para jogadores agressivos, e quem chega pode receber um reino já
+    reduzido. A atribuição "mais intacto" mitiga, mas não resolve se todos os guardiões estiverem a ser comidos.
+  - O reino recebido varia muito (na simulação, de 4 a 55 regiões): é a sorte do momento em que se entra.

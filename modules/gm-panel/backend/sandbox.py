@@ -1,4 +1,5 @@
-"""GM sandbox: um mundo local onde as 24 fações são bots e o utilizador é o mestre de jogo.
+"""GM sandbox: um mundo local onde o utilizador é o mestre de jogo.
+Os reinos "com jogador" são jogados por bots com estilo (simulam pessoas); os outros são reinos-guardiões (§7).
 
 Cada turno resolvido fica guardado em <data>/turns/state_NNNN.json (histórico completo e reconstituível).
 A API (app.py) é fina: toda a lógica está aqui, para poder ser reutilizada pelo servidor real mais tarde.
@@ -15,13 +16,16 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parents[2] / "turn-engine"
 sys.path.insert(0, str(ENGINE))
 
-from praga import DEFAULT, FREE, PRAGA, GameState, WorldMap, new_game, resolve_turn  # noqa: E402
+import random  # noqa: E402
+
+from praga import DEFAULT, FREE, PRAGA, GameState, WorldMap, claim_kingdom, new_game, resolve_turn  # noqa: E402
 from praga.bots import STYLES, bot_orders  # noqa: E402
 from praga.engine import INTENSITY_PT, validate_gm  # noqa: E402
 from praga.vision import player_view  # noqa: E402
 
 PRAGA_FACTION = {"id": PRAGA, "name": "A Praga", "color": "#3a1d40"}
 STYLE_PT = {"expansionist": "expansionista", "builder": "construtor", "defender": "defensor"}
+PLAYER_SHARE = 0.6        # fração de reinos com jogador (simulado) num mundo novo do sandbox
 
 
 class GMError(ValueError):
@@ -60,7 +64,9 @@ class Sandbox:
         with self.lock:
             for f in (self.dir / "turns").glob("state_*.json") if (self.dir / "turns").exists() else []:
                 f.unlink()
-            self.state = new_game(self.world, self.rules, None, rng_seed)
+            fids = sorted(f["id"] for f in self.raw_world["factions"] if f["id"] != FREE)
+            players = set(random.Random(f"players:{rng_seed}").sample(fids, max(1, round(PLAYER_SHARE * len(fids)))))
+            self.state = new_game(self.world, self.rules, None, rng_seed, players=players)
             self.pending: list[dict] = []
             self.history: list[dict] = [self._metrics(self.state)]
             self.chronicle: list[dict] = [{"turn": 1, "kind": "info",
@@ -105,7 +111,8 @@ class Sandbox:
         styles = self.styles
         factions = sorted(({
             "id": f.id, "name": f.name, "color": self.colors.get(f.id, "#8a8070"), "active": f.active,
-            "style": STYLE_PT.get(styles.get(f.id, ""), ""), "regions": regs.get(f.id, 0), "men": men.get(f.id, 0),
+            "style": "guardião" if f.controller == "bot" else STYLE_PT.get(styles.get(f.id, ""), ""),
+            "bot": f.controller == "bot", "regions": regs.get(f.id, 0), "men": men.get(f.id, 0),
             "growth10": regs.get(f.id, 0) - past.get(str(f.id), 0),
             "stock": {k: round(v) for k, v in f.stock.items()},
             "protected": f.protected_until >= s.turn,
@@ -190,7 +197,7 @@ class Sandbox:
     def _step(self, s: GameState, gm_orders: list[dict]):
         styles = self.styles
         orders = {fid: bot_orders(s, self.world, self.rules, fid, styles.get(fid, "builder"))
-                  for fid, f in sorted(s.factions.items()) if f.active}
+                  for fid, f in sorted(s.factions.items()) if f.active and f.controller == "player"}
         return resolve_turn(s, self.world, self.rules, orders, gm_orders)
 
     def _chronicle(self, turn: int, events: list[tuple], before: GameState) -> list[dict]:
@@ -209,7 +216,7 @@ class Sandbox:
                 conquests.append(e)
             elif k == "outbreak":
                 outbreaks.append(e[2])
-            elif k in ("dissolve", "eliminated", "regency"):
+            elif k in ("to_bot", "eliminated", "regency"):
                 out.append({"turn": turn, "kind": "faction", "text": e[2] + "."})
             elif k == "spy_caught":
                 out.append({"turn": turn, "kind": "faction", "regions": [e[2]],
@@ -235,6 +242,18 @@ class Sandbox:
             self.pending = []
             self.history.append(self._metrics(self.state))
             self.chronicle += self._chronicle(turn, events, before)
+            self._save()
+        return self.full_state()
+
+    def join(self) -> dict:
+        """Simula a entrada de um jogador novo: recebe o reino-guardião mais intacto (§7, v0.6)."""
+        with self.lock:
+            fid = claim_kingdom(self.state, self.world, self.rules)
+            if fid is None:
+                raise GMError("não há reinos-guardiões disponíveis")
+            f = self.state.factions[fid]
+            self.chronicle.append({"turn": self.state.turn, "kind": "faction", "regions": self.state.regions_of(fid)[:1],
+                                   "text": f"Um jogador novo assume {f.name} ({len(self.state.regions_of(fid))} regiões)."})
             self._save()
         return self.full_state()
 

@@ -143,6 +143,7 @@ class Faction:
     protected_until: int = 0
     last_orders: int = 0
     famine: bool = False
+    controller: str = "player"      # "player" ou "bot" (reino-guardião sem jogador, §7, v0.6)
 
     def posture(self, other: int) -> str:
         return self.postures.get(str(other), "neutral")
@@ -232,32 +233,34 @@ def land_distances(world: WorldMap, sources) -> dict[int, int]:
 
 
 def place_foci(world: WorldMap, capitals: list[int], rules: Rules) -> list[int]:
-    """Escolhe os focos iniciais da Praga (§6, decisão 1B): o mais longe possível das capitais e uns dos outros,
-    mas sempre no mesmo continente que pelo menos uma capital (um foco numa ilha vazia nunca faria nada)."""
-    to_cap = land_distances(world, capitals)
-    candidates = [rid for rid in sorted(world.regions) if rid in to_cap and to_cap[rid] >= 1]
-    # Ermos primeiro, se estiverem longe o suficiente
-    wild = [rid for rid in candidates if world.regions[rid].kind == "wild" and to_cap[rid] >= rules.foci_min_distance]
+    """Sugestões de focos da Praga para o GM (§6): entre foci_min_dist e foci_max_dist da capital mais próxima
+    (longe o suficiente para não matar ninguém à nascença, perto o suficiente para haver rumores), espalhados uns dos
+    outros, e sempre no mesmo continente que uma capital (um foco numa ilha vazia nunca faria nada)."""
+    if not capitals:
+        return []
+    reach = land_distances(world, capitals)
+    cap_xy = [world.regions[c].center for c in capitals]
+    dcap = {r: min(math.dist(world.regions[r].center, c) for c in cap_xy) for r in reach}
+    band = [r for r in sorted(reach) if rules.foci_min_dist <= dcap[r] <= rules.foci_max_dist]
+    if len(band) < rules.plague_foci:                       # mapa pequeno ou muito cheio: alarga para fora
+        band = [r for r in sorted(reach) if dcap[r] >= rules.foci_min_dist] or sorted(reach, key=lambda r: -dcap[r])
     chosen: list[int] = []
-    for rid in sorted(wild, key=lambda r: -to_cap[r]):
-        if len(chosen) < rules.plague_foci:
-            chosen.append(rid)
-    while len(chosen) < rules.plague_foci:
-        to_foci = land_distances(world, chosen) if chosen else {}
-        best = max((r for r in candidates if r not in chosen),
-                   key=lambda r: (min(to_cap[r], to_foci.get(r, 10 ** 6)), -r), default=None)
-        if best is None:
-            break
-        chosen.append(best)
+    while len(chosen) < rules.plague_foci and len(chosen) < len(band):
+        def score(r):
+            apart = min((math.dist(world.regions[r].center, world.regions[c].center) for c in chosen), default=1e9)
+            return (apart, dcap[r], -r)
+        chosen.append(max((r for r in band if r not in chosen), key=score))
     return chosen
 
 
-def new_game(world: WorldMap, rules: Rules, start: str | None = None, rng_seed: str = "") -> GameState:
+def new_game(world: WorldMap, rules: Rules, start: str | None = None, rng_seed: str = "",
+             players: set[int] | None = None) -> GameState:
     """start='world': cada reino começa com o território do world.json — num mundo com reinos próprios, todos têm o
     mesmo número de províncias (ferro garantido como em 'small'); o resto são Terras Livres guarnecidas.
     start='azgaar': o mesmo, num mundo antigo com o território do Azgaar (tamanhos muito desiguais).
     start='small': capital + 2 regiões (com ferro garantido, §3.1); o resto são Terras Livres guarnecidas.
     start=None: 'world' se o mundo tiver reinos próprios, senão 'small'.
+    players: fações com jogador; as outras começam como reinos-guardiões (bots, §7). None = todas com jogador.
     A Praga começa adormecida; os focos calculados são só sugestões para o GM (§6.1)."""
     if start is None:
         start = "world" if world.has_kingdoms else "small"
@@ -290,7 +293,8 @@ def new_game(world: WorldMap, rules: Rules, start: str | None = None, rng_seed: 
             mine = [r for r in regions if regions[r].owner == fid]
             if not any(world.regions[r].base["iron"] for r in mine):
                 regions[cap].iron_bonus = 2
-        factions[fid] = Faction(id=fid, name=world.factions[fid]["name"], stock=dict(rules.start_treasury))
+        factions[fid] = Faction(id=fid, name=world.factions[fid]["name"], stock=dict(rules.start_treasury),
+                                controller="player" if players is None or fid in players else "bot")
         armies[next_army] = Army(id=next_army, owner=fid, region=cap, men=rules.start_army)
         next_army += 1
 

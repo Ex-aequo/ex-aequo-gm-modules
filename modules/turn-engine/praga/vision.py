@@ -122,7 +122,8 @@ def player_view(state: GameState, world: WorldMap, rules: Rules, fid: int) -> di
         "regions": regions,
         "armies": [{"id": a.id, "region": a.region, "men": a.men, "vet": a.vet} for a in state.armies_of(fid)],
         "agents": [{"id": a.id, "kind": a.kind, "region": a.region} for a in state.agents_of(fid)],
-        "factions": [{"id": o, "name": state.factions[o].name} for o in sorted(seen_factions) if o in state.factions],
+        "factions": [{"id": o, "name": state.factions[o].name, "bot": state.factions[o].controller == "bot"}
+                     for o in sorted(seen_factions) if o in state.factions],
         "inbox": list(state.inbox.get(fid, [])),
     }
 
@@ -154,8 +155,9 @@ FROM_DIR = {"a leste": "de leste", "a sudeste": "de sudeste", "a sul": "do sul",
             "a oeste": "de oeste", "a noroeste": "de noroeste", "a norte": "do norte", "a nordeste": "de nordeste"}
 
 
-def _distance_band(hops: int) -> str:
-    return "perto das tuas fronteiras" if hops <= 3 else "a alguns dias de marcha" if hops <= 6 else "em terras distantes"
+def _distance_band(d: float, rules: Rules) -> str:
+    return ("perto das tuas fronteiras" if d <= rules.rumour_near else
+            "a alguns dias de marcha" if d <= rules.rumour_mid else "em terras distantes")
 
 
 def _direction(src, dst) -> str:
@@ -179,7 +181,12 @@ def make_rumours(state: GameState, world: WorldMap, rules: Rules, events: list, 
         if not own:
             continue
         vis = state.vision.get(fid, {})
-        dist = _hops(world, own, rules.rumour_radius)
+        own_xy = [world.regions[r].center for r in own]
+        dist = {}
+        for _, rid in happened:
+            d = min(math.dist(world.regions[rid].center, c) for c in own_xy)
+            if d <= rules.rumour_distance:
+                dist[rid] = d
         cx = sum(world.regions[r].center[0] for r in own) / len(own)
         cy = sum(world.regions[r].center[1] for r in own) / len(own)
         # o mesmo rumor (tipo + direção) não se repete durante RUMOUR_QUIET turnos; no máximo 2 rumores por turno
@@ -194,7 +201,7 @@ def make_rumours(state: GameState, world: WorldMap, rules: Rules, events: list, 
                 continue
             recent.add(key)
             heard += 1
-            text = rng.choice(RUMOURS[kind]).format(dir=d, dirfrom=FROM_DIR[d], far=_distance_band(dist[rid]))
+            text = rng.choice(RUMOURS[kind]).format(dir=d, dirfrom=FROM_DIR[d], far=_distance_band(dist[rid], rules))
             post(state, rules, fid, turn, "rumour", text, key)
 
 

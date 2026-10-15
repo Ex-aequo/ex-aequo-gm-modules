@@ -26,6 +26,7 @@ export const api = {
   addOrder: (o: GMOrder) => call<{ pending: GMOrder[] }>("POST", "/api/gm/orders", o),
   removeOrder: (i: number) => call<{ pending: GMOrder[] }>("DELETE", `/api/gm/orders/${i}`),
   resolve: () => call<GameState>("POST", "/api/turn"),
+  join: () => call<GameState>("POST", "/api/join"),
   preview: (turns: number) => call<Preview>("POST", "/api/preview", { turns }),
   reset: (seed: string) => call<GameState>("POST", "/api/reset", { seed }),
 };

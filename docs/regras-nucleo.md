@@ -1,4 +1,4 @@
-# Praga — Regras núcleo (rascunho v0.5)
+# Praga — Regras núcleo (rascunho v0.6)
 
 **Estado:** rascunho para discussão. Nada aqui é final até ser marcado ✅.
 
@@ -166,8 +166,10 @@ errantes do Atlantis.
 ✅ **Origem da Praga: vários focos iniciais e surtos em regiões negligenciadas** (ordem pública 0 ou fome durante
 2+ turnos). Pune a expansão rápida e mal gerida e é o principal travão ao jogador dominante.
 
-✅ **Focos sugeridos (v0.3/v0.4):** o motor calcula 6 focos possíveis, o mais longe possível das capitais (mínimo 6
-regiões) e uns dos outros, sempre num continente com jogadores. **Não estão ativos no arranque**: são sugestões para o GM.
+✅ **Focos sugeridos (v0.6):** o motor calcula 6 focos possíveis entre 200 e 420 unidades da capital mais próxima
+(o mundo tem 1920 × 1080), espalhados uns dos outros, sempre num continente com reinos. Longe o suficiente para não
+matar ninguém à nascença, perto o suficiente para haver rumores (§8.3). Distâncias em unidades do mundo, não em
+regiões: não mudam com o tamanho das províncias. **Não estão ativos no arranque**: são sugestões para o GM.
 
 ✅ **A Praga pode consumir o mundo (decisão C, v0.4).** Não há travão automático. O ritmo é decidido pelo GM (§6.1).
 
@@ -187,23 +189,31 @@ regiões) e uns dos outros, sempre num continente com jogadores. **Não estão a
 perde enquanto está ativa não volta sozinho quando adormece. Com bots, cada turno ativo custa em média ~0,7% do mapa
 de forma permanente: 30 turnos ligada e 30 desligada levam a ~70% do mapa perdido em 200 turnos.
 
-## 7. Entrada tardia e abandono 🟡 (lições do Atlantis)
+## 7. Reinos sem jogador, entrada e abandono ✅ (v0.6)
 
-**Os 25 lugares são um teto de jogadores ativos, não uma lista fixa.** Quando uma fação se dissolve, o lugar reabre.
+✅ **Todos os reinos existem desde o início.** Um reino sem jogador é um **reino-guardião**, governado pelo motor.
+Os jogadores sabem quais são guardiões (aparecem marcados).
+
+**Reino-guardião (bot):**
+- Defende, constrói, recruta com moderação e purga a Praga nas suas terras.
+- Expande só para **Terras Livres** (ou regiões recuperáveis da Praga), só por terra e só para o que vê.
+- **Nunca declara hostilidade nem ataca outro reino** — jogador ou guardião. Pode ser atacado.
+- As ordens dos guardiões são do motor: o que for submetido em nome deles é ignorado.
 
 **Entrada de um jogador novo:**
-- Escolhe a região inicial entre Terras Livres ou regiões recém-purgadas, nunca colada a um jogador ativo.
-- Recebe um **tesouro protegido**: dinheiro que não pode ser saqueado, como a prata não reclamada do Atlantis.
-- ❓ **Proteção inicial:**
-  - A) **5 turnos (10 dias) em que não pode ser atacado nem atacar. (recomendo)** Simples e claro.
-  - B) Região inicial com guarnição neutra forte, como os guardas das cidades do Atlantis. Mais elegante, mais difícil de equilibrar.
+- ✅ Recebe automaticamente o **reino-guardião mais intacto**: mais regiões, menos Praga, mais homens.
+  Herda o território, os exércitos e o tesouro desse reino.
+- ❓ **5 turnos (10 dias) de proteção**: não pode ser atacado nem atacar (proposta; ainda em aberto).
+- Se não houver guardiões, entra numa região livre longe de jogadores ativos (como antes).
 
 **Inatividade:**
 - 1 turno sem ordens → **ordens permanentes**: os exércitos guarnecem e a economia continua.
-- 3 turnos (6 dias) → **Regência**: uma IA defensiva mínima mantém a fação viva; o jogador pode voltar a qualquer momento.
-- ❓ 10 turnos (20 dias) → a fação **dissolve-se**: as regiões passam a Terras Livres com ordem pública 0, e por isso
-  tornam-se alvo natural da Praga (surtos em regiões negligenciadas, §6). O mundo recupera o espaço sem intervenção do GM.
-  O número exato é decisão tua.
+- 3 turnos (6 dias) → **Regência**: guarnecer e purgar; o jogador pode voltar a qualquer momento.
+- ✅ Ao fim de ❓10 turnos (20 dias) → o reino **passa a reino-guardião** e fica disponível para o próximo jogador. Os agentes são
+  dispensados e as posturas hostis voltam a neutras (um guardião não faz guerra).
+
+Regra geral do combate (v0.6): se dois reinos atacam a mesma Terra Livre no mesmo turno e o primeiro a toma, o
+segundo ataque só acontece se houver hostilidade declarada contra o novo dono. Ninguém entra em guerra por acidente.
 
 ## 8. Nevoeiro de guerra ✅ (v0.5)
 
@@ -238,7 +248,8 @@ Não combatem nem conquistam. Quem apanha um espião sabe de quem ele era (ganch
 ### 8.3 Rumores ✅
 
 Quem não vê o que a Praga faz ouve rumores: direção (8 pontos cardeais) e distância vaga ("perto das tuas fronteiras",
-"a alguns dias de marcha", "em terras distantes"), até 10 regiões de distância. Nunca o nome da região.
+"a alguns dias de marcha", "em terras distantes"), até 450 unidades da tua região mais próxima (bandas: 150 e 300).
+Nunca o nome da região.
 No máximo 2 rumores por turno e por fação; o mesmo rumor (tipo + direção) não se repete durante 4 turnos.
 O GM pode enviar os seus próprios rumores — verdadeiros ou falsos — a uma fação ou a todas as fações perto de uma região.
 
@@ -267,9 +278,13 @@ intensidade; o GM não joga no mesmo mundo (§6.1).
 **v0.5:** nevoeiro de guerra com geografia revelada por exploração, fotografias com data separadas da visão ao vivo,
 vizinhos por mar não dão visão, batedores e espiões (valores de partida), rumores da Praga e rumores do GM (§8).
 
+**v0.6:** reinos sem jogador são guardiões (expandem só para Terras Livres, nunca atacam reinos); quem chega recebe o
+guardião mais intacto; um reino abandonado passa a guardião (§7). Focos e rumores em distância real (§6, §8.3).
+Sem metas de equilíbrio: os jogadores fazem o jogo.
+
 **Ainda em aberto:**
 
 1. Proteção de entrada: **5 turnos** ou guarnição neutra? (§7)
-2. Turnos até a fação inativa se dissolver: 10 ou outro número? (§7)
-3. Alguma das 7 ordens a mais ou a menos? (§4)
+2. Turnos até um reino inativo passar a guardião: 10 ou outro número? (§7)
+3. Alguma das 9 ordens a mais ou a menos? (§4)
 4. A proposta de infraestruturas (§3.2) serve: um edifício por região, níveis 1–3, veios de ouro raros?

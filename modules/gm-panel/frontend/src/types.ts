@@ -12,6 +12,7 @@ export interface Faction {
   color: string;
   active: boolean;
   style: string;
+  bot: boolean;
   regions: number;
   men: number;
   growth10: number;
@@ -114,7 +115,7 @@ export interface PlayerView {
   regions: Record<string, KnownRegion>;
   armies: { id: number; region: number; men: number; vet: number }[];
   agents: { id: number; kind: "scout" | "spy"; region: number }[];
-  factions: { id: number; name: string }[];
+  factions: { id: number; name: string; bot: boolean }[];
   inbox: InboxEntry[];
   owner: number[];
   plague: number[];

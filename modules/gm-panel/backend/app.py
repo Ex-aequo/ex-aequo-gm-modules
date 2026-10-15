@@ -94,6 +94,15 @@ def resolve_turn():
     return sandbox.resolve()
 
 
+@app.post("/api/join")
+def join():
+    """Simula a entrada de um jogador novo (recebe o reino-guardião mais intacto)."""
+    try:
+        return sandbox.join()
+    except GMError as e:
+        raise HTTPException(409, str(e))
+
+
 @app.post("/api/preview")
 def preview(req: PreviewRequest):
     return sandbox.preview(req.turns)

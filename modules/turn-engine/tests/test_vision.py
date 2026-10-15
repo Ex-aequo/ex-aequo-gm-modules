@@ -219,3 +219,13 @@ class VisionTests(unittest.TestCase):
         start = self.fresh()
         grew = [f for f in s.factions if s.factions[f].active and len(s.known[f]) > len(start.known[f])]
         self.assertTrue(grew)
+
+    def test_view_marks_guardian_kingdoms(self):
+        players = set(sorted(self.world.factions)[1::2])
+        s = new_game(self.world, DEFAULT, "small", players=players)
+        for _ in range(4):
+            s, _ = resolve_turn(s, self.world, DEFAULT, {f: [] for f in players})
+        for fid in sorted(players):
+            for f in player_view(s, self.world, DEFAULT, fid)["factions"]:
+                self.assertEqual(f["bot"], f["id"] not in players)
+

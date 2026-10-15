@@ -16,7 +16,9 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from praga import DEFAULT, FREE, PRAGA, WorldMap, add_faction, new_game, plague_strength, resolve_turn
+import random
+
+from praga import DEFAULT, FREE, PRAGA, WorldMap, add_faction, claim_kingdom, new_game, plague_strength, resolve_turn
 from praga.vision import first_contact
 from praga.bots import STYLES, bot_orders
 from praga.state import land_distances
@@ -88,11 +90,16 @@ def gini(xs: list[int]) -> float:
     return sum((2 * i - n + 1) * x for i, x in enumerate(xs)) / (n * total)
 
 
-def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=gm_always) -> dict:
-    state = new_game(world, rules, start, rng_seed)
+def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=gm_always, players: float = 1.0) -> dict:
+    """players: fração dos reinos com jogador (simulado por um bot com estilo); os outros são reinos-guardiões."""
+    all_fids = sorted(f for f in world.factions if f != FREE)
+    n_players = max(1, round(players * len(all_fids)))
+    human = set(random.Random(f"players:{rng_seed}").sample(all_fids, n_players)) if players < 1 else None
+    state = new_game(world, rules, start, rng_seed, players=human)
     fids = sorted(state.factions)
+    humans0 = sorted(f for f in fids if state.factions[f].controller == "player")
     style = {fid: STYLES[i % len(STYLES)] for i, fid in enumerate(fids)}
-    abandon = {fids[2]: ABANDON_AT[0], fids[7]: ABANDON_AT[1], fids[12]: ABANDON_AT[2]}
+    abandon = {humans0[i * len(humans0) // 4]: t for i, t in enumerate(ABANDON_AT)} if len(humans0) >= 4 else {}
     to_focus = land_distances(world, state.foci)
     start_dist = {fid: to_focus.get(state.armies_of(fid)[0].region, 99) for fid in fids}
     no_iron = [fid for fid in fids if not any(world.regions[r].base["iron"] + state.regions[r].iron_bonus
@@ -103,18 +110,24 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=g
 
     for _ in range(turns):
         turn = state.turn
-        if turn in ENTRIES and sum(f.active for f in state.factions.values()) < MAX_ACTIVE:
-            rid = add_faction(state, world, rules, next_new, f"Recém-chegados {next_new - 99}")
-            if rid:
-                style[next_new] = "builder"
-                event_log.append((turn, "entry", next_new, rid))
-                next_new += 1
+        if turn in ENTRIES:
+            got = claim_kingdom(state, world, rules)          # primeiro um reino-guardião; senão, terra livre
+            if got is not None:
+                style[got] = "builder"
+                abandon.pop(got, None)                        # quem chega joga, mesmo num reino abandonado
+                event_log.append((turn, "claim", got, len(state.regions_of(got))))
+            elif sum(f.active for f in state.factions.values()) < max(MAX_ACTIVE, len(fids)):
+                rid = add_faction(state, world, rules, next_new, f"Recém-chegados {next_new - 99}")
+                if rid:
+                    style[next_new] = "builder"
+                    event_log.append((turn, "entry", next_new, rid))
+                    next_new += 1
         orders = {fid: bot_orders(state, world, rules, fid, style[fid])
                   for fid, f in sorted(state.factions.items())
-                  if f.active and not (fid in abandon and turn >= abandon[fid])}
+                  if f.active and f.controller == "player" and not (fid in abandon and turn >= abandon[fid])}
         state, events = resolve_turn(state, world, rules, orders, gm(state, world, rules, total))
         kinds = Counter(e[0] for e in events)
-        event_log += [(turn, *e) for e in events if e[0] in ("dissolve", "regency", "eliminated", "gm")]
+        event_log += [(turn, *e) for e in events if e[0] in ("to_bot", "regency", "eliminated", "gm")]
         for fid in fids:
             if fid not in contact and fid in state.known and first_contact(state, fid):
                 contact[fid] = turn
@@ -132,11 +145,17 @@ def simulate(world: WorldMap, rules, start: str, turns: int, rng_seed: str, gm=g
             "conquests": kinds["conquest"], "lost_regions": kinds["lost"], "outbreaks": kinds["outbreak"],
             "rejected": sum(e[2] for e in events if e[0] == "rejected"),
             "known": statistics.mean(len(state.known[f]) / total for f in act) if act else 0,
+            "players": sum(1 for f in state.factions.values() if f.active and f.controller == "player"),
+            "guardians": sum(1 for f in state.factions.values() if f.active and f.controller == "bot"),
+            "player_regions": statistics.mean([owners.get(f.id, 0) for f in state.factions.values()
+                                               if f.active and f.controller == "player"] or [0]),
+            "guardian_regions": statistics.mean([owners.get(f.id, 0) for f in state.factions.values()
+                                                 if f.active and f.controller == "bot"] or [0]),
             "scouts_lost": kinds["scout_lost"],
             "rumours": sum(1 for f in fids for m in state.inbox.get(f, []) if m["turn"] == turn and m["kind"] == "rumour"),
         })
 
-    played = [f for f in fids if f not in abandon]
+    played = [f for f in humans0 if f not in abandon]
     survived = {f: len(state.regions_of(f)) > 0 for f in played}
     return {
         "contact": {fid: contact.get(fid) for fid in fids},
@@ -159,6 +178,8 @@ def main():
     ap.add_argument("--out", default="build/sim")
     ap.add_argument("--set", action="append", default=[], metavar="CAMPO=JSON")
     ap.add_argument("--gm", choices=sorted(GM_POLICIES), default="always", help="política de GM simulada")
+    ap.add_argument("--players", type=float, default=1.0,
+                    help="fração dos reinos com jogador (o resto são reinos-guardiões)")
     args = ap.parse_args()
 
     rules = DEFAULT
@@ -173,7 +194,8 @@ def main():
     world = WorldMap.load(args.world, rules)
 
     t0 = time.perf_counter()
-    runs = [simulate(world, rules, args.start, args.turns, f"s{i}", GM_POLICIES[args.gm]) for i in range(args.seeds)]
+    runs = [simulate(world, rules, args.start, args.turns, f"s{i}", GM_POLICIES[args.gm], args.players)
+            for i in range(args.seeds)]
     elapsed = time.perf_counter() - t0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -210,6 +232,20 @@ def main():
             hs = [r["history"][t - 1] for r in runs]
             print(f"  turno {t:3d}: mapa conhecido por fação (média) {statistics.mean(h['known'] for h in hs):.1%}"
                   f" · rumores no turno {statistics.mean(h['rumours'] for h in hs):.1f}")
+    # reinos com jogador e reinos-guardiões (§7, v0.6)
+    for t in (1, 25, 50, 100):
+        if t <= args.turns:
+            hs = [r["history"][t - 1] for r in runs]
+            print(f"  turno {t:3d}: jogadores {statistics.mean(h['players'] for h in hs):5.1f}"
+                  f" (média {statistics.mean(h['player_regions'] for h in hs):4.1f} regiões)"
+                  f" · guardiões {statistics.mean(h['guardians'] for h in hs):5.1f}"
+                  f" (média {statistics.mean(h['guardian_regions'] for h in hs):4.1f} regiões)")
+    claims = [e for r in runs for e in r["events"] if e[1] == "claim"]
+    if claims:
+        print(f"recém-chegados receberam reinos com {', '.join(str(e[3]) for e in claims)} regiões (turnos "
+              f"{', '.join(str(e[0]) for e in claims)})")
+    to_bot = [e for r in runs for e in r["events"] if e[1] == "to_bot"]
+    print(f"reinos abandonados que passaram a guardião: {len(to_bot)}")
     lost_sc = sum(h["scouts_lost"] for r in runs for h in r["history"])
     print(f"batedores perdidos: {lost_sc / len(runs):.0f} por corrida")
     on = [statistics.mean(h["active_plague"] for h in r["history"]) for r in runs]

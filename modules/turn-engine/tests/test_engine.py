@@ -92,13 +92,52 @@ class EngineTests(unittest.TestCase):
         acc, _ = validate(s, self.world, DEFAULT, fid, [{"type": "build", "region": rid, "what": "upgrade"}])
         self.assertEqual(len(acc), 1)
 
-    def test_inactivity_regency_then_dissolve(self):
+    def test_inactivity_regency_then_guardian(self):
         s = self.fresh()
         fid = sorted(s.factions)[0]
         for _ in range(DEFAULT.dissolve_after + 1):
-            s, _ = resolve_turn(s, self.world, DEFAULT, {})
-        self.assertFalse(s.factions[fid].active)
-        self.assertFalse(s.regions_of(fid))
+            s, ev = resolve_turn(s, self.world, DEFAULT, {})
+        f = s.factions[fid]
+        self.assertTrue(f.active, "um reino abandonado não desaparece")
+        self.assertEqual(f.controller, "bot")
+        self.assertTrue(s.regions_of(fid))
+
+    def test_guardians_never_attack_kingdoms(self):
+        from praga.bots import guardian_orders
+        s = new_game(self.world, DEFAULT, "small", players=set())       # todos guardiões
+        for _ in range(25):
+            for fid in sorted(s.factions):
+                for o in guardian_orders(s, self.world, DEFAULT, fid):
+                    self.assertNotEqual(o["type"], "posture")
+                    if o["type"] == "attack":
+                        self.assertIn(s.regions[o["target"]].owner, (FREE, PRAGA))
+            s, ev = resolve_turn(s, self.world, DEFAULT, {})
+            self.assertFalse([e for e in ev if e[0] == "conquest" and e[3] not in (FREE, PRAGA)])
+        self.assertGreater(sum(len(s.regions_of(f)) for f in s.factions), 3 * len(s.factions), "guardiões expandem")
+
+    def test_submitted_orders_for_guardians_are_ignored(self):
+        s = new_game(self.world, DEFAULT, "small", players=set())
+        fid = sorted(s.factions)[0]
+        a = s.armies_of(fid)[0]
+        bogus = {fid: [{"type": "recruit", "region": s.regions_of(fid)[0], "men": 200}] * 1}
+        t, _ = resolve_turn(s, self.world, DEFAULT, bogus)
+        u, _ = resolve_turn(s, self.world, DEFAULT, {})
+        self.assertEqual(t.digest(), u.digest())
+        self.assertTrue(a)
+
+    def test_newcomer_gets_most_intact_guardian(self):
+        from praga import claim_kingdom
+        players = set(sorted(self.world.factions)[1:5])
+        s = new_game(self.world, DEFAULT, "small", players=players)
+        bots = [f for f in s.factions if s.factions[f].controller == "bot"]
+        fid = claim_kingdom(s, self.world, DEFAULT, "Recém-chegado")
+        self.assertIn(fid, bots)
+        f = s.factions[fid]
+        self.assertEqual((f.controller, f.name), ("player", "Recém-chegado"))
+        self.assertGreaterEqual(f.protected_until, s.turn)
+        self.assertEqual(len(s.regions_of(fid)), max(len(s.regions_of(b)) for b in bots))
+        s2 = new_game(self.world, DEFAULT, "small")
+        self.assertIsNone(claim_kingdom(s2, self.world, DEFAULT), "sem guardiões não há reino para dar")
 
     def test_late_entry_is_protected_and_isolated(self):
         s = self.fresh()
@@ -110,14 +149,13 @@ class EngineTests(unittest.TestCase):
         for n in self.world.regions[rid].neighbors:
             self.assertIn(s.regions[n].owner, (FREE, PRAGA, 100))
 
-    def test_foci_far_from_capitals(self):
-        from praga.state import land_distances
+    def test_foci_within_band_from_capitals(self):
         s = self.fresh()
         self.assertEqual(len(s.foci), DEFAULT.plague_foci)
-        dist = land_distances(self.world, s.foci)
-        for fid in s.factions:
-            cap = s.armies_of(fid)[0].region
-            self.assertGreaterEqual(dist.get(cap, 99), DEFAULT.foci_min_distance)
+        caps = [self.world.regions[s.armies_of(f)[0].region].center for f in s.factions]
+        for rid in s.foci:
+            d = min(math.dist(self.world.regions[rid].center, c) for c in caps)
+            self.assertGreaterEqual(d, DEFAULT.foci_min_dist)
 
     def test_every_faction_starts_with_iron(self):
         s = self.fresh()

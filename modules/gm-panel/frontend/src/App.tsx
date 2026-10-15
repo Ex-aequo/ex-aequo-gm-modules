@@ -97,6 +97,11 @@ export function App() {
       setPreview(await api.preview(previewTurns));
       setShowPreview(true);
     });
+  const join = () =>
+    run("A simular a entrada", async () => {
+      setGame(await api.join());
+      invalidatePreview();
+    });
   const reset = () =>
     run("A recomeçar", async () => {
       setGame(await api.reset(`s${Date.now() % 100000}`));
@@ -314,7 +319,7 @@ export function App() {
               {game.factions.filter((f) => f.active).map((f) => (
                 <tr key={f.id}>
                   <td><span className="sw" style={{ background: f.color }} /></td>
-                  <td>{f.name}<div className="muted small">{f.style}{f.protected ? " · protegida" : ""}</div></td>
+                  <td>{f.name}<div className="muted small">{f.bot ? "reino-guardião (bot)" : `jogador · ${f.style}`}{f.protected ? " · protegida" : ""}</div></td>
                   <td className="num">{f.regions}</td>
                   <td className={`num ${f.growth10 > 0 ? "up" : f.growth10 < 0 ? "down" : ""}`}>{f.growth10 > 0 ? `+${f.growth10}` : f.growth10}</td>
                   <td className="num">{f.men.toLocaleString("pt-PT")}</td>
@@ -322,6 +327,14 @@ export function App() {
               ))}
             </tbody>
           </table>
+          <div className="row gap">
+            <button type="button" onClick={join} disabled={!!busy || !game.factions.some((f) => f.active && f.bot)}>
+              Simular entrada de um jogador
+            </button>
+            <span className="muted small">
+              {game.factions.filter((f) => f.active && f.bot).length} reinos-guardiões disponíveis; quem chega recebe o mais intacto.
+            </span>
+          </div>
           {game.factions.some((f) => !f.active) && (
             <p className="muted small">Fora do jogo: {game.factions.filter((f) => !f.active).map((f) => f.name).join(", ")}</p>
           )}
@@ -516,6 +529,9 @@ function PlayerCard({ v, selected, regionName, factionName }: {
         Ouro {Math.round(v.faction.stock.gold)} · comida {Math.round(v.faction.stock.food)} · madeira {Math.round(v.faction.stock.wood)}
         {" "}· ferro {Math.round(v.faction.stock.iron)} · {v.faction.command_points} pontos de comando
       </p>
+      {v.factions.length > 0 && (
+        <p className="small">Conhece: {v.factions.map((f) => f.name + (f.bot ? " (guardião)" : "")).join(", ")}.</p>
+      )}
       {selected > 0 && <KnownRegionCard id={selected} r={r} turn={v.turn} regionName={regionName} factionName={factionName} />}
       <h3>Mensagens</h3>
       <Inbox entries={v.inbox} />

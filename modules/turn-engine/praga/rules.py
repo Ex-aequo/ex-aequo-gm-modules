@@ -76,7 +76,10 @@ class Rules:
     plague_recede: int = 3               # por turno, com ordem pública 3 e sem fome
     # sugestões de focos para o GM (decisão 1B): longe das capitais e uns dos outros
     plague_foci: int = 6
-    foci_min_distance: int = 6           # regiões até à capital mais próxima
+    # v0.6: distâncias em unidades do mundo (o mundo tem sempre 1920 × 1080), não em regiões — assim não dependem
+    # do tamanho das províncias
+    foci_min_dist: float = 200.0         # distância mínima à capital mais próxima
+    foci_max_dist: float = 420.0         # e máxima: dentro do alcance dos rumores, para alguém ouvir falar do foco
     foci_neighbor_plague: int = 30
     # v0.4: a Praga é um evento do GM (§6.1). Intensidade multiplica crescimento, alastramento, surtos e crias.
     plague_intensities = {"weak": 0.5, "normal": 1.0, "strong": 1.5}
@@ -90,12 +93,15 @@ class Rules:
     spy_steps: int = 1
     spy_catch_base: float = 0.10         # por turno, numa região que não é tua
     spy_catch_per_fort: float = 0.10     # por nível de fortificação
-    rumour_radius: int = 10              # regiões (por terra) até onde chegam rumores da Praga
+    rumour_distance: float = 450.0       # até onde chegam rumores da Praga (da região tua mais próxima)
+    rumour_near: float = 150.0           # "perto das tuas fronteiras"
+    rumour_mid: float = 300.0            # "a alguns dias de marcha"; mais longe: "em terras distantes"
     inbox_keep: int = 40                 # mensagens guardadas por fação (rumores e relatórios)
 
     # §7 entrada e abandono
     protection_turns: int = 5
-    regency_after: int = 3
+    regency_after: int = 3               # turnos sem ordens até à Regência
+    # dissolve_after: turnos sem ordens até o reino passar a reino-guardião (bot), disponível para quem chegar (v0.6)
     dissolve_after: int = 10
     new_player_treasury = {"gold": 120, "food": 60, "wood": 60, "iron": 40}
 

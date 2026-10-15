@@ -182,3 +182,79 @@ def bot_orders(state: GameState, world: WorldMap, rules: Rules, fid: int, style:
 
     accepted, _ = validate(state, world, rules, fid, orders)
     return accepted
+
+
+# --------------------------------------------------------------------------- reinos-guardiões (§7, v0.6)
+def guardian_orders(state: GameState, world: WorldMap, rules: Rules, fid: int) -> list[dict]:
+    """Reino sem jogador. Defende, constrói, purga a Praga e expande só para Terras Livres (ou regiões recuperáveis
+    da Praga). Nunca declara hostilidade nem ataca outro reino, jogador ou bot. Decide só com o que vê."""
+    rng = random.Random(f"guardian:{state.rng_seed}:{fid}:{state.turn}")
+    mine = state.regions_of(fid)
+    if not mine:
+        return []
+    vis = state.vision.get(fid, {})
+    stock = dict(state.factions[fid].stock)
+    orders: list[dict] = []
+
+    def afford(cost: dict) -> bool:
+        if all(stock[k] >= v for k, v in cost.items()):
+            for k, v in cost.items():
+                stock[k] -= v
+            return True
+        return False
+
+    for a in state.armies_of(fid):
+        r = state.regions[a.region]
+        if r.plague >= 20:
+            orders.append({"type": "purge", "army": a.id})
+            continue
+        targets = []
+        for n in world.regions[a.region].neighbors:            # só por terra: um guardião não desembarca
+            nr = state.regions[n]
+            if n not in vis or state.armies_in(n) and any(x.owner != fid for x in state.armies_in(n)):
+                continue
+            defense = _strength_at(state, n, fid)
+            if nr.owner == FREE:
+                score = nr.pop * 2 - defense / 50 - nr.plague
+            elif nr.owner == PRAGA and nr.plague < rules.plague_lost:
+                score = nr.pop - nr.plague / 2
+            else:
+                continue
+            if a.men > defense * 1.5:
+                targets.append((score, n))
+        if targets and a.men >= 150 and rng.random() < 0.5:
+            orders.append({"type": "attack", "army": a.id, "target": max(targets)[1]})
+            continue
+        infected = [n for n in world.regions[a.region].neighbors
+                    if state.regions[n].owner == fid and state.regions[n].plague > 0]
+        if infected:
+            orders.append({"type": "move", "army": a.id, "path": [infected[0]]})
+            continue
+        orders.append({"type": "garrison", "army": a.id})
+
+    built = 0
+    for rid in sorted(mine, key=lambda r: -state.regions[r].pop):
+        if built >= 2:
+            break
+        r, info = state.regions[rid], world.regions[rid]
+        if r.project or r.plague >= rules.plague_infested:
+            continue
+        if not r.building and info.allowed_buildings:
+            what = max(info.allowed_buildings, key=lambda b: info.base.get(BUILDINGS[b], 0))
+            if afford(rules.building_cost[1]):
+                orders.append({"type": "build", "region": rid, "what": what})
+                built += 1
+        elif r.building and r.level < 3 and afford(rules.building_cost[r.level + 1]):
+            orders.append({"type": "build", "region": rid, "what": "upgrade"})
+            built += 1
+
+    men = sum(a.men for a in state.armies_of(fid))
+    if men < 150 * len(mine) ** 0.5 and stock["food"] > 10:
+        rid = max(mine, key=lambda r: (state.regions[r].pop, -r))
+        r = state.regions[rid]
+        if r.plague < rules.plague_infested and r.order >= 1:
+            if afford({k: v for k, v in rules.recruit_cost_per_100.items()}):
+                orders.append({"type": "recruit", "region": rid, "men": 100})
+
+    accepted, _ = validate(state, world, rules, fid, orders)
+    return accepted

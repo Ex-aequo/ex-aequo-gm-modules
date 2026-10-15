@@ -82,6 +82,14 @@ class SandboxApiTests(unittest.TestCase):
         inbox = self.c.get(f"/api/view/{fid}").json()["inbox"]
         self.assertIn("Viu-se fumo no horizonte.", [m["text"] for m in inbox if m["kind"] == "gm"])
 
+    def test_guardians_and_join(self):
+        st = self.c.get("/api/state").json()
+        bots = [f for f in st["factions"] if f["bot"]]
+        self.assertTrue(bots and all(f["style"] == "guardião" for f in bots))
+        after = self.c.post("/api/join").json()
+        self.assertEqual(sum(f["bot"] for f in after["factions"]), len(bots) - 1)
+        self.assertIn("jogador novo", after["chronicle"][-1]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

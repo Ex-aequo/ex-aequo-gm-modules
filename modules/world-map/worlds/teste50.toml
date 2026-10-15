@@ -1,0 +1,19 @@
+# Mundo de teste com 50 reinos, 4 continentes.
+# Gerar: python tools/export_azgaar.py worlds/teste50.toml build/teste50
+#        python tools/build_world.py build/teste50/world_full.json build/teste50/data --config worlds/teste50.toml
+
+[world]
+name = "teste50"
+seed = "ex-aequo-50"
+
+[mundo]
+tamanho = "grande"
+
+[geografia]
+continentes = 4
+terra = 0.40
+ilhas = "poucas"
+mar_interior = false
+
+[politica]
+reinos = 50

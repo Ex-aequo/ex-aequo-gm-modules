@@ -24,7 +24,9 @@ A API foi desenhada para passar a ser a do servidor real: a lógica está em `ba
   `player_view` que o servidor real vai enviar a cada jogador.
 - **Rumores:** o GM escreve um rumor (verdadeiro ou falso) para uma fação ou para todas as fações perto de uma região;
   chega no próximo turno como mensagem, igual aos rumores automáticos.
-- **Fações** (regiões, crescimento nos últimos 10 turnos, homens) e **crónica** pública turno a turno.
+- **Fações** (regiões, crescimento nos últimos 10 turnos, homens; jogador ou reino-guardião) e **crónica** pública.
+  Num mundo novo, 60 % dos reinos têm "jogador" (bots com estilo, a simular pessoas) e 40 % são guardiões.
+- **Simular entrada de um jogador:** o jogador novo recebe o reino-guardião mais intacto (regras §7).
 
 Cada turno resolvido fica em `build/sandbox/turns/state_NNNN.json` (histórico completo; o sandbox retoma onde ficou).
 
@@ -54,6 +56,7 @@ Testes da API: `python -m unittest backend.test_api` (a partir de `modules/gm-pa
 | POST | `/api/gm/orders` | acrescenta uma ordem do GM (`plague_state`, `plague_focus`, `plague_intensity`, `rumor`); 400 com a razão se for inválida |
 | DELETE | `/api/gm/orders/{i}` | retira a ordem `i` da fila |
 | POST | `/api/turn` | resolve o turno (bots + ordens do GM) |
+| POST | `/api/join` | simula a entrada de um jogador novo (recebe o guardião mais intacto); 409 se não houver |
 | POST | `/api/preview` | `{"turns": 10}` → estado previsto, série de métricas, regiões que caem, fações atingidas |
 | POST | `/api/reset` | `{"seed": "s1"}` → mundo novo |
 

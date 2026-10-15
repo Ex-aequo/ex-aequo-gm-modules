@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import random
 
+from .bots import guardian_orders
 from .orders import agent_cost, build_cost, validate
 from .rules import BUILDINGS, FREE, PRAGA, RESOURCES, Rules
 from .state import Agent, Army, Faction, GameState, WorldMap
@@ -29,17 +30,39 @@ def regency_orders(state: GameState, world: WorldMap, rules: Rules, fid: int) ->
     return out
 
 
-def dissolve(state: GameState, fid: int, events: list):
+def to_guardian(state: GameState, fid: int, events: list):
+    """Reino abandonado (§7, v0.6): passa a reino-guardião (bot) e fica disponível para o próximo jogador.
+    Os agentes do jogador são dispensados; posturas hostis voltam a neutras (um guardião não faz guerra)."""
     f = state.factions[fid]
-    f.active = False
-    for rid in state.regions_of(fid):
-        r = state.regions[rid]
-        r.owner, r.order, r.garrison, r.project = FREE, 0, 50, None
-    for aid in [a.id for a in state.armies_of(fid)]:
-        del state.armies[aid]
+    f.controller = "bot"
+    f.postures = {k: v for k, v in f.postures.items() if v != "hostile"}
     for gid in [g.id for g in state.agents_of(fid)]:
         del state.agents[gid]
-    events.append(("dissolve", fid, f"{f.name} dissolve-se; as suas terras ficam livres"))
+    events.append(("to_bot", fid, f"{f.name} fica sem senhor e passa a reino-guardião"))
+
+
+def claim_kingdom(state: GameState, world: WorldMap, rules: Rules, name: str | None = None) -> int | None:
+    """Um jogador novo recebe o reino-guardião mais intacto (§7, v0.6): mais regiões, menos Praga, mais homens.
+    Fica protegido durante protection_turns. Devolve o id da fação, ou None se não houver reinos-guardiões."""
+    best, best_key = None, None
+    for fid, f in sorted(state.factions.items()):
+        if not f.active or f.controller != "bot":
+            continue
+        regs = state.regions_of(fid)
+        if not regs:
+            continue
+        sick = sum(1 for r in regs if state.regions[r].plague >= rules.plague_contaminated)
+        key = (len(regs) - 2 * sick, sum(a.men for a in state.armies_of(fid)), -fid)
+        if best_key is None or key > best_key:
+            best, best_key = fid, key
+    if best is None:
+        return None
+    f = state.factions[best]
+    f.controller, f.last_orders = "player", state.turn
+    f.protected_until = state.turn + rules.protection_turns - 1
+    if name:
+        f.name = name
+    return best
 
 
 def add_faction(state: GameState, world: WorldMap, rules: Rules, fid: int, name: str) -> int | None:
@@ -101,15 +124,20 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
     # 0. decisões do mestre de jogo (§6.1)
     _apply_gm(s, world, rules, gm_orders or [], events)
 
-    # inatividade (§7)
+    # reinos-guardiões e inatividade (§7): as ordens dos bots são do motor, não de quem submete
+    orders = dict(orders)
     for fid, f in sorted(s.factions.items()):
         if not f.active:
+            continue
+        if f.controller == "bot":
+            orders[fid] = guardian_orders(s, world, rules, fid)
             continue
         if fid in orders:
             f.last_orders = turn
         idle = turn - f.last_orders
         if idle >= rules.dissolve_after:
-            dissolve(s, fid, events)
+            to_guardian(s, fid, events)
+            orders[fid] = guardian_orders(s, world, rules, fid)
         elif idle >= rules.regency_after:
             orders[fid] = regency_orders(s, world, rules, fid)
             if idle == rules.regency_after:
@@ -216,6 +244,10 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
             if a.id not in s.armies:
                 continue
             r = s.regions[rid]
+            # outro reino tomou o alvo neste mesmo turno (ataques simultâneos a Terras Livres): sem hostilidade
+            # declarada, o ataque não se faz — ninguém entra em guerra por acidente
+            if r.owner not in (FREE, PRAGA, a.owner) and s.factions[a.owner].posture(r.owner) != "hostile":
+                continue
             defenders = [d for d in s.armies_in(rid) if d.owner != a.owner and
                          (d.owner == r.owner or s.factions[a.owner].posture(d.owner) == "hostile")]
             g = any(d.id in garrisoned for d in defenders)

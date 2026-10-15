@@ -49,7 +49,11 @@ O `world.json` gera-se com o módulo [world-map](../world-map/).
 - Métricas por turno e por seed em `build/sim/runs.json`: % do mapa perdido para a Praga, contaminado e livre, fações ativas,
   maior e menor fação, índice de Gini, homens em armas, conquistas, surtos.
 
-Resultados: [v0.2](../../docs/simulacao-v0.2.md), [v0.3](../../docs/simulacao-v0.3.md), [v0.4](../../docs/simulacao-v0.4.md), [v0.5](../../docs/simulacao-v0.5.md).
+Resultados: [v0.2](../../docs/simulacao-v0.2.md), [v0.3](../../docs/simulacao-v0.3.md), [v0.4](../../docs/simulacao-v0.4.md), [v0.5](../../docs/simulacao-v0.5.md), [v0.6](../../docs/simulacao-v0.6.md).
+
+**Reinos-guardiões (§7):** `new_game(..., players={...})` marca os reinos com jogador; os outros são guardiões e as
+ordens deles saem do motor (`bots.guardian_orders`) em cada `resolve_turn`. `claim_kingdom` dá a quem chega o guardião
+mais intacto. Na simulação, `--players 0.6` deixa 40 % dos reinos como guardiões.
 
 **Nevoeiro (§8):** o que um jogador recebe sai de `vision.player_view(state, world, rules, fid)`, construída só a partir
 das fotografias da fação. O teste `test_player_view_does_not_depend_on_hidden_state` muda tudo o que a fação não vê e
