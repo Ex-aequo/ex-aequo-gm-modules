@@ -1,77 +1,42 @@
-"""Prova Blender, passo 1: exporta um recorte do mundo para o Blender renderizar.
+"""Prova Blender: exporta um só recorte do mundo (o mesmo caminho dos tiles, mas uma janela à escolha).
 
 Uso (a partir de modules/world-map):
     python blender/export_tile.py build/exemplo/world_full.json build/exemplo/data build/blender-prova
     python blender/export_tile.py ... --bbox 900 300 360      # x0 y0 lado, em unidades do mundo (opcional)
-
-Sem --bbox, escolhe sozinho uma janela com costa, montanha e floresta.
-Escreve em <saída>/:
-  height.npy, height.png   altura (0 = nível do mar; >0 terra), já com detalhe: vales dos rios e cristas
-  color.png                cor de bioma (a mesma paleta da base atual)
-  forest.npy, forest.png   densidade de floresta 0..1
-  sea.npy, sea.png         profundidade relativa do mar 0..1 (0 na costa)
-  burgs.json               povoações dentro do recorte (posição em píxeis, população, capital)
-  atual.png                o mesmo recorte da base atual (base.jpg), ampliado, para comparar
-  meta.json                janela, resolução e escala
-A linha de costa vem do regions.png (a mesma que as fronteiras usam), para o render encaixar no mapa.
+Sem --bbox, escolhe sozinho uma janela sobretudo de terra, com costa, montanha e floresta.
+Na primeira vez calcula o relevo do mundo inteiro (~2 min) e guarda-o em <saída>/world_q.npz.
+Escreve os dados para o render_tile.py e atual.png (o mesmo recorte da base atual, para comparar).
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy import ndimage
-from scipy.interpolate import LinearNDInterpolator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-SEA_LEVEL = 20
-# paleta da base atual (tools/build_world.py) — repetida aqui de propósito: o build_world é um script, não um módulo
-BIOME_RGB = np.array([[int(c[i:i + 2], 16) / 255 for i in (1, 3, 5)] for c in [
-    "#6f97a3", "#dcc597", "#cbc2a6", "#cdc387", "#b1bb7a", "#93a86a", "#86a062", "#6b8c58", "#74916a",
-    "#7d8f6e", "#b2b4a0", "#eef0ec", "#8a9a7c"]], dtype=np.float32)
-FOREST = np.zeros(13, dtype=np.float32)
-FOREST[[5, 6, 7, 8, 9]] = [0.6, 0.8, 1.0, 0.9, 0.8]
+from worldlib import FOREST, K, World, save_tile_inputs  # noqa: E402
 
 
-def fbm(shape, octaves, base, seed, ridged=False):
-    g = np.random.default_rng(seed)
-    out = np.zeros(shape, np.float32)
-    amp = tot = 0.0
-    amp = 1.0
-    for o in range(octaves):
-        n = base * 2 ** o
-        grid = g.random((n + 3, n + 3)).astype(np.float32)
-        z = ndimage.zoom(grid, (shape[0] / (n + 3), shape[1] / (n + 3)), order=3)[: shape[0], : shape[1]]
-        if ridged:
-            z = 1 - np.abs(z * 2 - 1)
-        out += amp * z
-        tot += amp
-        amp *= 0.5
-    return out / tot
-
-
-def pick_window(cells, size, W, H, land_raster, scale):
-    """Janela sobretudo de terra, com costa, montanha e floresta: a variedade é o que a prova tem de mostrar."""
-    pts = np.array([c["p"] for c in cells])
-    h = np.array([c["h"] for c in cells])
-    bio = np.array([c["biome"] for c in cells])
+def pick_window(world: World, size: float):
+    """Janela sobretudo de terra (≈65 %), com montanha e floresta: a variedade é o que a prova tem de mostrar."""
+    h = np.array([c["h"] for c in world.cells])
+    bio = np.array([c["biome"] for c in world.cells])
     best, best_s = None, -1
-    for y0 in np.arange(0, H - size + 1, size / 4):
-        for x0 in np.arange(0, W - size + 1, size / 4):
-            m = (pts[:, 0] >= x0) & (pts[:, 0] < x0 + size) & (pts[:, 1] >= y0) & (pts[:, 1] < y0 + size)
+    for y0 in np.arange(0, world.H - size + 1, size / 4):
+        for x0 in np.arange(0, world.W - size + 1, size / 4):
+            m = ((world.pts[:, 0] >= x0) & (world.pts[:, 0] < x0 + size) &
+                 (world.pts[:, 1] >= y0) & (world.pts[:, 1] < y0 + size))
             if m.sum() < 50:
                 continue
-            land = h[m] >= SEA_LEVEL
-            r = land_raster[int(y0 * scale):int((y0 + size) * scale):4, int(x0 * scale):int((x0 + size) * scale):4]
+            r = world.land_r[int(y0 * world.scale):int((y0 + size) * world.scale):4,
+                             int(x0 * world.scale):int((x0 + size) * world.scale):4]
             lf = r.mean()
-            mount = (h[m] >= 50).mean()
-            forest = FOREST[bio[m]][land].mean() if land.any() else 0
-            s = min(1 - abs(lf - 0.65) * 2.5, mount * 6, forest * 2, 1.0)   # sobretudo terra, com costa
+            land = h[m] >= 20
+            s = min(1 - abs(lf - 0.65) * 2.5, (h[m] >= 50).mean() * 6,
+                    FOREST[bio[m]][land].mean() * 2 if land.any() else 0, 1.0)
             if s > best_s:
                 best, best_s = (float(x0), float(y0)), s
     return best
@@ -80,136 +45,30 @@ def pick_window(cells, size, W, H, land_raster, scale):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("full_json")
-    ap.add_argument("data_dir", help="pasta com regions.png e base.jpg (saída do build_world.py)")
+    ap.add_argument("data_dir")
     ap.add_argument("out")
     ap.add_argument("--bbox", nargs=3, type=float, metavar=("X0", "Y0", "LADO"))
-    ap.add_argument("--px", type=int, default=2048)
     args = ap.parse_args()
     out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-
-    d = json.loads(Path(args.full_json).read_text())
-    cells = d["pack"]["cells"]
-    W, H = d["info"]["width"], d["info"]["height"]
-    reg = np.asarray(Image.open(Path(args.data_dir) / "regions.png"))
-    scale = json.loads((Path(args.data_dir) / "world.json").read_text())["rasterScale"]
-    land_all = (reg[..., 0].astype(int) + reg[..., 1]) > 0
+    world = World(Path(args.full_json), Path(args.data_dir), out / "world_q.npz")
     if args.bbox:
         x0, y0, size = args.bbox
     else:
         size = 360.0
-        x0, y0 = pick_window(cells, size, W, H, land_all, scale)
-    px = args.px
-    k = px / size                                   # píxeis por unidade do mundo
-    print(f"janela x={x0:.0f} y={y0:.0f} lado={size:.0f} → {px}×{px} px ({k:.1f} px por unidade)")
-    # o relevo é calculado numa janela com margem e cortado no fim: a erosão usa a borda como nível de base,
-    # e assim a borda fica fora da imagem (e recortes vizinhos encaixam melhor)
-    pad = px // 8
-    PW = px + 2 * pad
-    X0, Y0 = x0 - pad / k, y0 - pad / k
-
-    yy, xx = np.mgrid[0:PW, 0:PW].astype(np.float32)
-    wx, wy = X0 + (xx + 0.5) / k, Y0 + (yy + 0.5) / k
-
-    # células perto da janela
-    pts = np.array([c["p"] for c in cells], dtype=np.float64)
-    m = 40 + pad / k
-    near = ((pts[:, 0] > x0 - m) & (pts[:, 0] < x0 + size + m) & (pts[:, 1] > y0 - m) & (pts[:, 1] < y0 + size + m))
-    idx = np.where(near)[0]
-    hval = np.array([cells[i]["h"] for i in idx], dtype=np.float64)
-    bio = np.array([cells[i]["biome"] for i in idx], dtype=np.int32)
-
-    # --- terra/mar: a costa do regions.png (2 px por unidade), suavizada para a resolução nova
-    def raster_crop(arr, rx, ry, n):
-        """Recorte que aceita sair do mundo (fora do mapa conta como mar)."""
-        out = np.zeros((n, n) + arr.shape[2:], arr.dtype)
-        sx0, sy0 = max(rx, 0), max(ry, 0)
-        sx1, sy1 = min(rx + n, arr.shape[1]), min(ry + n, arr.shape[0])
-        if sx1 > sx0 and sy1 > sy0:
-            out[sy0 - ry:sy1 - ry, sx0 - rx:sx1 - rx] = arr[sy0:sy1, sx0:sx1]
-        return out
-    rX0, rY0, rS = int(round(X0 * scale)), int(round(Y0 * scale)), int(round(size * scale + 2 * pad / k * scale))
-    land_r = raster_crop(land_all, rX0, rY0, rS).astype(np.float32)
-    land_f = ndimage.zoom(land_r, PW / rS, order=1)[:PW, :PW]
-    if land_f.shape[0] < PW:
-        land_f = np.pad(land_f, ((0, PW - land_f.shape[0]), (0, PW - land_f.shape[1])), mode="edge")
-    land_f = ndimage.gaussian_filter(land_f, k / scale * 0.5)
-    land = land_f >= 0.5
-
-    # --- altura: base suave do Azgaar → erosão (blender/erosion.py)
-    interp = LinearNDInterpolator(pts[idx], hval, fill_value=0.0)
-    h = interp(wx.ravel(), wy.ravel()).reshape(PW, PW).astype(np.float32)
-    h = ndimage.gaussian_filter(h, k * 3)
-    base = np.where(land, np.clip((h - SEA_LEVEL) / (80 - SEA_LEVEL), 0.002, 1), 0)   # 0 na costa, 1 nos picos
-    from erosion import mountains
-    elev = mountains(base, land, vertical_px=40 * k)
-    # vales dos rios do Azgaar (os rios que o jogo desenha): marcados de leve, para coincidirem com o relevo
-    from PIL import ImageDraw
-    canvas = Image.new("F", (PW, PW), 0.0)
-    dr = ImageDraw.Draw(canvas)
-    for rv in d["pack"]["rivers"]:
-        if not rv or len(rv.get("cells", [])) < 3:
-            continue
-        line = [((pts[c][0] - X0) * k, (pts[c][1] - Y0) * k) for c in rv["cells"] if 0 <= c < len(pts)]
-        if not any(0 <= x < PW and 0 <= y < PW for x, y in line):
-            continue
-        w = max(1.0, min(6.0, (rv.get("discharge", 1) ** 0.5) / 6))
-        dr.line(line, fill=float(w), width=max(2, int(w * k / 3)))
-    valley = ndimage.gaussian_filter(np.asarray(canvas, dtype=np.float32), k * 3.0)
-    valley /= max(valley.max(), 1e-6)
-    elev = elev - np.sqrt(valley) * (0.01 + 0.12 * elev)
-    elev = np.clip(elev, 0.004, None)
-    # perto da costa, a terra desce suave até ao mar (praias, não falésias por todo o lado)
-    dist_land = ndimage.distance_transform_edt(land) / k
-    elev = elev * np.clip(dist_land / 6.0, 0.15, 1.0)
-    dist_sea = ndimage.distance_transform_edt(~land) / k
-    sea_full = np.where(land, 0.0, np.clip(dist_sea / 30.0, 0, 1))
-
-    # corte da margem: daqui para a frente, tudo à janela pedida
-    cut = (slice(pad, pad + px), slice(pad, pad + px))
-    land, elev, wx, wy = land[cut], elev[cut], wx[cut], wy[cut]
-    height = np.where(land, elev, 0.0).astype(np.float32)
-    sea = sea_full[cut].astype(np.float32)
-    rx0, ry0, rs = int(x0 * scale), int(y0 * scale), int(size * scale)
-
-    # --- cor de bioma e floresta (célula mais próxima, suavizado)
-    from scipy.spatial import cKDTree
-    _, nn = cKDTree(pts[idx]).query(np.column_stack([wx.ravel(), wy.ravel()]), workers=-1)
-    b = bio[nn].reshape(px, px)
-    col = BIOME_RGB[b]
-    col = np.stack([ndimage.gaussian_filter(col[..., i], k * 2) for i in range(3)], -1)
-    forest = ndimage.gaussian_filter(FOREST[b], k * 1.5)
-    forest *= land * np.clip(1 - (elev - 0.6) / 0.2, 0, 1)                     # sem árvores nos picos
-    forest *= fbm((px, px), 4, 10, seed=103) * 1.4                              # clareiras
-    forest = np.clip(forest, 0, 1).astype(np.float32)
-
-    # --- povoações
-    burgs = []
-    for bg in d["pack"]["burgs"][1:]:
-        if not bg or bg.get("removed"):
-            continue
-        bx, by = (bg["x"] - x0) * k, (bg["y"] - y0) * k
-        if 0 <= bx < px and 0 <= by < px and land[int(by), int(bx)]:
-            burgs.append({"x": round(bx, 1), "y": round(by, 1), "pop": round(bg.get("population", 0), 2),
-                          "capital": bool(bg.get("capital")), "name": bg["name"]})
-
-    # --- recorte da base atual, para comparar
+        x0, y0 = pick_window(world, size)
+    inner = int(round(size * K))
+    t = world.window_inputs(int(round(x0 * K)), int(round(y0 * K)), inner)
+    save_tile_inputs(t, out)
+    import json
+    meta = json.loads((out / "meta.json").read_text())
+    meta["hmax"] = float(world.relief_q.max())
+    (out / "meta.json").write_text(json.dumps(meta))
+    s = world.scale
     base = Image.open(Path(args.data_dir) / "base.jpg")
-    atual = base.crop((rx0, ry0, rx0 + rs, ry0 + rs)).resize((px, px), Image.LANCZOS)
-
-    np.save(out / "height.npy", height)
-    np.save(out / "forest.npy", forest)
-    np.save(out / "sea.npy", sea)
-    Image.fromarray((np.clip(height / max(height.max(), 1e-6), 0, 1) * 65535).astype(np.uint16)).save(out / "height.png")
-    Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8)).save(out / "color.png")
-    Image.fromarray((forest * 255).astype(np.uint8)).save(out / "forest.png")
-    Image.fromarray((sea * 255).astype(np.uint8)).save(out / "sea.png")
-    atual.save(out / "atual.png")
-    (out / "burgs.json").write_text(json.dumps(burgs, ensure_ascii=False, indent=1))
-    (out / "meta.json").write_text(json.dumps({"x0": x0, "y0": y0, "size": size, "px": px,
-                                               "px_per_unit": k, "source": args.full_json}, indent=1))
-    print(f"terra {land.mean():.0%} · floresta {forest[land].mean() if land.any() else 0:.0%} · "
-          f"{len(burgs)} povoações · guardado em {out}")
+    base.crop((int(x0 * s), int(y0 * s), int((x0 + size) * s), int((y0 + size) * s))).resize(
+        (inner, inner), Image.LANCZOS).save(out / "atual.png")
+    print(f"janela x={x0:.0f} y={y0:.0f} lado={size:.0f} → {inner}×{inner} px · {len(t['trees'])} árvores · "
+          f"{len(t['houses'])} casas · guardado em {out}")
 
 
 if __name__ == "__main__":

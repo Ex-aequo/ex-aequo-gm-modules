@@ -17,6 +17,7 @@ tools/export_azgaar.py    injeta o relevo no Azgaar (headless), verifica os cont
 tools/partition.py        províncias e reinos próprios (todos os reinos com o mesmo n.º de províncias)
 tools/build_world.py      Full JSON -> web/data/{world.json, base.jpg, regions.png}
 tools/preview.py          imagem do mapa político, para verificar um mundo sem browser
+blender/                  base renderizada no Blender, em tiles (estilo atlas) — ver blender/README.md
 tools/build_page.py       junta index.html + map.js numa página única (build/dist/)
 web/index.html, map.js    demo interativa (o desenho do mapa vem do módulo map-renderer)
 ```
@@ -125,7 +126,8 @@ Testes da partição (sem Azgaar): `python -m unittest tools.test_partition`.
   uma vez por turno (render-to-texture).
 - **Zoom alto**: base e IDs a 2 px/unidade. Acima de ~6× a base fica mole e as fronteiras ganham facetas.
   Correção prevista: tiles por nível de zoom, com a base renderizada no Blender.
-- **A base pintada em Python é provisória** — serve para validar a direção visual.
+- **Base:** a pintada em Python (`build_world.py`) é o ponto de partida; a final é renderizada no Blender em tiles
+  (`blender/render_world.py --install` substitui a `base.jpg` e acrescenta `tiles/` e `tiles.json`).
 - **Cores com 100+ reinos:** reinos vizinhos recebem cores afastadas, mas com 150 há inevitavelmente tons parecidos.
 - **Nomes de província:** maior burgo da província; sem burgo, o nome da província do Azgaar com "do Norte",
   "Oriental", etc., e numerais (II, III) quando se repete. Em mapas grandes aparecem repetições ("Rovehol IV").

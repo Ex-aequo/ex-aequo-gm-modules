@@ -1,6 +1,7 @@
 // Renderizador partilhado do mapa-mundo (WebGL2 + Canvas 2D). Sem dependências.
 //
-// Camada 1: base.jpg — pintada uma vez, offline, a partir dos dados do Azgaar (módulo world-map)
+// Camada 1: base.jpg — pintada uma vez, offline, a partir dos dados do Azgaar (módulo world-map); se existir
+//           tiles.json, tiles renderizados no Blender por nível de zoom (só os visíveis; a base.jpg fica de reserva)
 // Camada 2: shader — cores de fação, fronteiras anti-aliased e Praga, a partir de regions.png (IDs) e de duas
 //           tabelas pequenas (dono + praga por região; cor por fação) que mudam a cada turno
 // Camada 3: canvas 2D — rios, estradas, burgos, nomes e marcadores
@@ -78,6 +79,8 @@ uniform sampler2D uBase;
 uniform sampler2D uRegion;   // IDs de região (nearest)
 uniform sampler2D uRegLut;   // por região: rg = dono, b = praga, a = visão (0 desconhecida, .5 conhecida, 1 visível)
 uniform sampler2D uFacLut;   // por fação: cor
+uniform sampler2D uDetail;   // tiles visíveis, desenhados à resolução do ecrã (a = 0 onde ainda não há tile)
+uniform bool uHasDetail;
 uniform vec2 uCam, uRes, uWorld;
 uniform float uZoom, uDpr, uScale, uTime;
 uniform int uHover, uSelected;
@@ -115,6 +118,10 @@ void main() {
   }
 
   vec3 col = texture(uBase, w / uWorld).rgb;
+  if (uHasDetail) {
+    vec4 det = texelFetch(uDetail, ivec2(gl_FragCoord.xy), 0);
+    col = mix(col, det.rgb, det.a);
+  }
   int id = regionAt(w);
 
   // --- nevoeiro: campo suave a partir da visão das regiões à volta (a água herda das terras próximas)
@@ -288,6 +295,132 @@ void main() {
   makeTex(0, baseImg, { mip: true });
   makeTex(1, regionImg, { nearest: true });
 
+  // ------------------------------------------------------------------ tiles da base (opcional: tiles.json)
+  const tileMeta = await fetch(`${dataUrl}/tiles.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const tileCache = new Map();               // "z/x_y" -> { tex, used } | { loading: true } | { failed: true }
+  let tilesDirty = true, frameNo = 0;
+  let tileProg = null, tileVao = null, tileBuf = null, fbo = null, detailTex = null, fboW = 0, fboH = 0;
+  if (tileMeta) {
+    tileProg = gl.createProgram();
+    gl.attachShader(tileProg, compile(gl.VERTEX_SHADER, `#version 300 es
+in vec2 aPos; in vec2 aUv; out vec2 vUv;
+void main() { vUv = aUv; gl_Position = vec4(aPos, 0.0, 1.0); }`));
+    gl.attachShader(tileProg, compile(gl.FRAGMENT_SHADER, `#version 300 es
+precision mediump float;
+uniform sampler2D uTile; in vec2 vUv; out vec4 o;
+void main() { o = vec4(texture(uTile, vUv).rgb, 1.0); }`));
+    gl.linkProgram(tileProg);
+    tileVao = gl.createVertexArray();
+    gl.bindVertexArray(tileVao);
+    tileBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, tileBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, 16 * 4, gl.DYNAMIC_DRAW);
+    const la = gl.getAttribLocation(tileProg, "aPos"), lu = gl.getAttribLocation(tileProg, "aUv");
+    gl.enableVertexAttribArray(la);
+    gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(lu);
+    gl.vertexAttribPointer(lu, 2, gl.FLOAT, false, 16, 8);
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    detailTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, detailTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    fbo = gl.createFramebuffer();
+  }
+
+  function loadTile(z, key) {
+    const id = `${z}/${key}`;
+    tileCache.set(id, { loading: true });
+    fetch(`${dataUrl}/tiles/${id}.${tileMeta.format}`)
+      .then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+      .then((b) => createImageBitmap(b, { colorSpaceConversion: "none", premultiplyAlpha: "none" }))
+      .then((img) => {
+        if (!alive) return;
+        const tex = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        tileCache.set(id, { tex, w: img.width, h: img.height, used: frameNo });
+        evictTiles();
+        tilesDirty = true;
+        requestRedraw(false);
+      })
+      .catch(() => tileCache.set(id, { failed: true }));
+  }
+  function evictTiles() {
+    const live = [...tileCache.entries()].filter(([, t]) => t.tex);
+    if (live.length <= 320) return;
+    live.sort((a, b) => a[1].used - b[1].used);
+    for (const [id, t] of live.slice(0, live.length - 320)) { gl.deleteTexture(t.tex); tileCache.delete(id); }
+  }
+  // com nevoeiro, só se pedem tiles que tocam regiões conhecidas (tiles só de mar não revelam nada)
+  const tileAllowed = (L, key) => {
+    if (!fogOn) return true;
+    const ids = L.regions[key];
+    return !ids || !ids.length || ids.some((id) => fogLevel[id] >= 1);
+  };
+
+  function drawTiles() {
+    if (fboW !== canvas.width || fboH !== canvas.height) {
+      fboW = canvas.width; fboH = canvas.height;
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, detailTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, fboW, fboH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, detailTex, 0);
+    }
+    frameNo++;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, fboW, fboH);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(tileProg);
+    gl.bindVertexArray(tileVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, tileBuf);
+    gl.activeTexture(gl.TEXTURE5);
+    gl.uniform1i(gl.getUniformLocation(tileProg, "uTile"), 5);
+    const levels = tileMeta.levels, ts = tileMeta.tileSize;
+    const need = cam.zoom * dpr;                                // píxeis de ecrã por unidade do mundo
+    let zt = 0;
+    for (const L of levels) if (L.pxPerUnit >= need) zt = L.z;
+    const sx = (wx) => ((wx - cam.x) * cam.zoom * dpr) / fboW * 2 - 1;
+    const sy = (wy) => 1 - ((wy - cam.y) * cam.zoom * dpr) / fboH * 2;
+    const quad = new Float32Array(16);
+    // do nível mais grosseiro ao escolhido: os grosseiros tapam o que ainda está a carregar
+    for (let z = levels.length - 1; z >= zt; z--) {
+      const L = levels[z], ppu = L.pxPerUnit;
+      const c0 = Math.max(0, Math.floor(cam.x * ppu / ts)), c1 = Math.min(L.cols - 1, Math.floor((cam.x + vw / cam.zoom) * ppu / ts));
+      const r0 = Math.max(0, Math.floor(cam.y * ppu / ts)), r1 = Math.min(L.rows - 1, Math.floor((cam.y + vh / cam.zoom) * ppu / ts));
+      for (let ty = r0; ty <= r1; ty++) {
+        for (let tx = c0; tx <= c1; tx++) {
+          const key = `${tx}_${ty}`;
+          if (!tileAllowed(L, key)) continue;
+          const t = tileCache.get(`${z}/${key}`);
+          if (!t) { if (z === zt || z === levels.length - 1) loadTile(z, key); continue; }
+          if (!t.tex) continue;
+          t.used = frameNo;
+          const x0 = tx * ts / ppu, y0 = ty * ts / ppu, x1 = (tx * ts + t.w) / ppu, y1 = (ty * ts + t.h) / ppu;
+          quad.set([sx(x0), sy(y0), 0, 0, sx(x1), sy(y0), 1, 0, sx(x0), sy(y1), 0, 1, sx(x1), sy(y1), 1, 1]);
+          gl.bindTexture(gl.TEXTURE_2D, t.tex);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, quad);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+      }
+    }
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.useProgram(prog);
+  }
+
   const LUT_W = 1024;                                  // tabela de regiões em 2D: 1024 x LUT_H (até 4095 regiões)
   const LUT_H = Math.max(1, Math.ceil((NREG + 1) / LUT_W));
   if (LUT_H > 4) throw new Error(`demasiadas regiões (${NREG}); o máximo é 4095`);
@@ -302,12 +435,13 @@ void main() {
 
   const U = Object.fromEntries(
     ["uBase", "uRegion", "uRegLut", "uFacLut", "uCam", "uRes", "uWorld", "uZoom", "uDpr", "uScale", "uTime",
-      "uHover", "uSelected", "uBorders", "uPlague", "uFog"].map((n) => [n, gl.getUniformLocation(prog, n)])
+      "uHover", "uSelected", "uBorders", "uPlague", "uFog", "uDetail", "uHasDetail"].map((n) => [n, gl.getUniformLocation(prog, n)])
   );
   gl.uniform1i(U.uBase, 0);
   gl.uniform1i(U.uRegion, 1);
   gl.uniform1i(U.uRegLut, 2);
   gl.uniform1i(U.uFacLut, 3);
+  gl.uniform1i(U.uDetail, 4);
   gl.uniform2f(U.uWorld, W, H);
   gl.uniform1f(U.uScale, SCALE);
 
@@ -594,12 +728,14 @@ void main() {
   const t0 = performance.now();
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   function requestRedraw(ovr) {
-    if (ovr) overlayDirty = true;
+    if (ovr) { overlayDirty = true; tilesDirty = true; }
     if (!rafPending && alive) { rafPending = true; requestAnimationFrame(frame); }
   }
   function frame() {
     rafPending = false;
     if (!alive) return;
+    if (tileMeta && tilesDirty) { tilesDirty = false; drawTiles(); }
+    gl.uniform1i(U.uHasDetail, tileMeta ? 1 : 0);
     gl.uniform2f(U.uCam, cam.x, cam.y);
     gl.uniform2f(U.uRes, canvas.width, canvas.height);
     gl.uniform1f(U.uZoom, cam.zoom);

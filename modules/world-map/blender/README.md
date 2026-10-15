@@ -1,72 +1,80 @@
-# Prova Blender: base do mapa renderizada
+# Base do mapa renderizada no Blender (estilo atlas)
 
-Objetivo: decidir se vale a pena trocar a base pintada em Python (`base.jpg`) por uma renderizada no Blender.
-Renderiza só um recorte (360 × 360 unidades do mundo, 2048 px) e põe-no lado a lado com a base atual.
-Nada disto muda o jogo: fronteiras, cores dos reinos, Praga e nevoeiro continuam a ser desenhados por cima.
+A base do mapa (relevo, florestas, povoações, mar) é renderizada no Blender, em tiles, e o renderizador do mapa
+carrega só os tiles visíveis para o zoom atual. Fronteiras, cores dos reinos, Praga, nevoeiro e nomes continuam a
+ser desenhados por cima, em tempo real. Estilo escolhido: **atlas** (decisão de 2026-10-15).
 
-Testado com o Blender **4.2 LTS**. Versões mais recentes devem funcionar, mas a API dos nós muda de vez em quando:
-se der erro, instala a 4.2 LTS (https://www.blender.org/download/lts/4-2/).
+Tudo é gerado por código, sem assets externos nem IA: o mesmo mundo dá sempre as mesmas imagens.
+Testado com o Blender **4.2 LTS** (https://www.blender.org/download/lts/4-2/).
 
-## No Mac
+## Mundo inteiro
 
 ```bash
 cd modules/world-map
-# 0. uma vez: dependências Python do módulo (numpy, scipy, pillow, numba)
-uv pip install -r requirements.txt          # dentro do .venv que já usas
+uv pip install -r requirements.txt            # numpy, scipy, pillow, numba (uma vez)
 
-# 1. exportar o recorte (escolhe sozinho uma zona com costa, montanha e floresta)
+python blender/render_world.py build/exemplo/world_full.json build/exemplo/data build/tiles-exemplo --install
+```
+
+No Mac usa o Blender em `/Applications/Blender.app` e a GPU (Metal). É **retomável**: se parar a meio, voltar a
+correr o mesmo comando continua onde ficou. `--install` copia no fim `tiles/`, `tiles.json` e a `base.jpg` nova
+para a pasta de dados (a base antiga, pintada em Python, fica em `base-python.jpg`).
+
+**Tempo (mundo de exemplo, 1920 × 1080 unidades, 5,3 px por unidade):** relevo global ~2 min; ~45 tiles com terra
+de 1024 px, ~50 s cada aqui (2 núcleos, sem GPU, 32 amostras) — cerca de 40 min no total. Os tiles só de mar não
+vão ao Blender.
+
+O que sai em `build/tiles-<mundo>/`:
+
+| Ficheiro | Conteúdo |
+|---|---|
+| `tiles/<z>/<x>_<y>.webp` | pirâmide de zoom, tiles de 512 px; `z = 0` é o nível de mais detalhe (5,3 px/unidade), cada nível seguinte tem metade |
+| `tiles.json` | níveis, tamanho e, para cada tile, as regiões que toca (o servidor envia a cada jogador só tiles de regiões que ele conhece) |
+| `base.jpg` | o mundo inteiro a 2 px por unidade: reserva enquanto os tiles carregam, e o que se vê com o mapa todo à vista |
+| `mundo.jpg` | o mosaico completo, para ver de uma vez |
+| `raw/`, `world_q.npz` | renders em bruto e o relevo global (cache; apagar para recalcular) |
+
+## Como evita costuras entre tiles
+
+- **Relevo, mar, cores e floresta** são calculados uma vez para o mundo inteiro (a 1/4 da resolução) e amostrados
+  por cada tile em coordenadas do mundo.
+- **Detalhe fino, clareiras e árvores** são funções das coordenadas do mundo (ruído e sorteios com hash): o mesmo
+  ponto dá sempre a mesma árvore, em qualquer tile.
+- **Casas** têm semente fixa por povoação.
+- Cada tile é renderizado com **margem** (128 px de cada lado): as sombras do vizinho entram; a câmara corta-a.
+- **Papel, tinta na costa e tom do atlas** são aplicados ao mosaico inteiro depois de juntar, não tile a tile.
+
+## O relevo
+
+`erosion.py`: erosão fluvial "stream power" (Braun & Willett 2013) sobre a rede de drenagem de um priority-flood —
+a água escoa até ao mar e corta vales ramificados em proporção ao caudal; as montanhas recebem algum levantamento;
+uma difusão leve arredonda as cristas. Depois, detalhe fino com ruído "erodido" e os vales dos rios do jogo marcados
+de leve. A erosão por gotas de água foi experimentada e posta de parte (enchia depressões e criava "lagos" planos).
+
+## Prova de um só recorte
+
+Para experimentar luz, cores ou estilos sem renderizar o mundo:
+
+```bash
 python blender/export_tile.py build/exemplo/world_full.json build/exemplo/data build/blender-prova
-#    outra zona: --bbox X0 Y0 LADO   (unidades do mundo; o mundo tem 1920 × 1080)
-
-# 2. renderizar os três estilos (usa a GPU do Mac via Metal)
 for s in maqueta atlas sombrio; do
   /Applications/Blender.app/Contents/MacOS/Blender -b -P blender/render_tile.py -- build/blender-prova --style $s
 done
-
-# 3. comparar
-python blender/compare.py build/blender-prova
-open build/blender-prova/comparacao.png build/blender-prova/comparacao-zoom.png
+python blender/compare.py build/blender-prova        # base atual + cada estilo, inteiro e ampliado 2×
 ```
 
-O passo 1 precisa de um mundo gerado com o `--config` (ver o README do módulo): `world_full.json` + a pasta com
-`regions.png`, `base.jpg` e `world.json`. Para o mundo antigo: `build/praga/world_full.json web/data`.
+Opções do `render_tile.py` (depois do `--`): `--style maqueta|atlas|sombrio`, `--samples 96`, `--px 1024`,
+`--no-trees`, `--cpu`, `--save-blend` (guarda a cena para abrir no Blender e mexer à mão), `--no-post`.
 
-Opções do render (depois do `--`): `--style maqueta|atlas|sombrio`, `--samples 96`, `--relief 40`, `--no-trees`, `--cpu`, `--px 1024` (rascunho
-rápido), `--save-blend` (guarda `prova.blend` para abrir no Blender e mexer à mão na luz e nos materiais).
-
-**Tempo:** aqui (2 núcleos, sem GPU) cada estilo demorou ~4,5 min a 2048 px com 32 amostras. Num Mac com chip Apple deve ser
-bastante menos, mas não está medido. Um rascunho a 768 px com 16 amostras demora ~25 s mesmo sem GPU.
-
-## O que a cena tem
-
-- **Relevo** (`erosion.py`): a altura suave do Azgaar passa por erosão fluvial ("stream power", o método usado em
-  geomorfologia): a água escoa até ao mar e corta vales ramificados em proporção ao caudal; as montanhas recebem
-  algum levantamento para não desaparecerem. Depois, detalhe fino com ruído "erodido" e os vales dos rios do jogo
-  marcados de leve. É calculado numa janela com margem e cortado, para a borda não virar falésia. ~10 s.
-  (A erosão por gotas de água foi experimentada e posta de parte: enchia depressões e criava "lagos" planos.)
-- **Terreno:** malha de 1024 × 1024 vértices com essa altura, exagerada 40 unidades. Cor do bioma (a mesma paleta da base atual), rocha nas encostas íngremes,
-  neve no alto, micro-relevo por ruído.
-- **Floresta:** árvores (coníferas e folhosas, modelos simples feitos por código) espalhadas pela densidade de
-  floresta, sem árvores em encostas a pique. Instâncias, por isso são dezenas de milhares sem pesar.
-- **Povoações:** grupos de casinhas em cada burgo, maiores nas capitais.
-- **Mar:** cor pela profundidade (baixio claro junto à costa), ondulação leve.
-- **Luz:** sol rasante de noroeste (como nos mapas clássicos) e céu suave; câmara ortográfica vista de cima.
-
-A costa vem do `regions.png`, por isso o render encaixa nas fronteiras que o mapa desenha por cima.
-
-## Estilos
-
-| Estilo | Luz | Árvores | Pós-processamento |
+| Estilo | Luz | Árvores | Acabamento |
 |---|---|---|---|
-| **maqueta** | sol rasante de noroeste, branco | pequenas e densas | nenhum |
-| **atlas** | sol mais alto e quente, céu quente | grandes e espaçadas, como num mapa desenhado | papel, tinta na costa, cores mais vivas |
-| **sombrio** | sol baixo e frio | escuras e densas | dessaturado, névoa nas terras baixas, vinheta |
+| maqueta | sol rasante de noroeste, branco | pequenas e densas | nenhum |
+| **atlas** (escolhido) | sol mais alto e quente | grandes e espaçadas | papel, tinta na costa, cores mais vivas |
+| sombrio | sol baixo e frio | escuras e densas | dessaturado, névoa nas terras baixas, vinheta |
 
-O terreno é o mesmo nos três; só mudam luz, cores, árvores e o acabamento. Mistura de estilos é possível
-(por exemplo, o relevo da maqueta com a tinta e o papel do atlas).
+## Limitações conhecidas
 
-## O que ainda é provisório (direção de arte)
-
-- Nas zonas mais altas a neve ainda ocupa muito (o relevo do Azgaar tem planaltos altos).
-- Não há estradas nem rios desenhados na base (continuam no canvas por cima).
-- Cores: a paleta é a da base atual; o render pode pedir uma paleta própria.
+- **Nevoeiro:** um tile toca várias províncias; um jogador que conhece uma vê também a geografia das vizinhas no mesmo
+  tile (nunca donos nem exércitos). Aceite (decisão de 2026-10-15); mascarar por jogador seria mais caro.
+- **Neve:** nas zonas mais altas ainda ocupa muito.
+- Estradas e rios continuam a ser desenhados por cima (canvas), não fazem parte do render.

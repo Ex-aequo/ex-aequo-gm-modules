@@ -37,3 +37,12 @@ A transição é suave (campo calculado a partir das regiões à volta) e a águ
 O renderizador só esconde: quem decide o que cada jogador sabe é o servidor (ver turn-engine, `player_view`).
 Os ficheiros do mapa (`base.jpg`, `world.json`) têm o mundo inteiro; num servidor real têm de ser servidos por
 jogador (ver "Limitações" no README do world-map).
+
+## Tiles da base
+
+Se a pasta de dados tiver `tiles.json` (gerado por `world-map/blender/render_world.py`), o renderizador desenha os
+tiles visíveis do nível de zoom certo numa textura do tamanho do ecrã e o shader usa-a por cima da `base.jpg`.
+Enquanto um tile carrega, aparece o nível mais grosseiro (e, por baixo de tudo, a `base.jpg`). Guarda até 320 tiles
+em memória. Com nevoeiro, só pede tiles que tocam regiões conhecidas (ou só mar). Sem `tiles.json`, tudo funciona
+como antes, só com a `base.jpg`.
+

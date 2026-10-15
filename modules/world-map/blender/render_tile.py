@@ -1,11 +1,15 @@
-"""Prova Blender, passo 2: renderiza o recorte exportado por export_tile.py.
+"""Renderiza um recorte exportado (export_tile.py, para a prova) ou um tile do mundo (render_world.py).
 
-No Mac (Blender 4.2 LTS ou mais recente, https://www.blender.org/download/):
+No Mac (Blender 4.2 LTS, https://www.blender.org/download/lts/4-2/):
     /Applications/Blender.app/Contents/MacOS/Blender -b -P blender/render_tile.py -- build/blender-prova
+A pasta tem: height.npy, sea.png, color.png, trees.npy, houses.npy e meta.json (janela com margem).
+A câmara mostra só o interior; a margem existe para as sombras e o relevo vizinhos entrarem.
 Opções (depois do "--"):
     --samples 96        amostras do Cycles (mais = menos grão, mais lento)
-    --px 2048           resolução final (a exportação foi feita a 2048)
-    --relief 40         exagero do relevo (altura máxima em unidades do mundo; o recorte tem 360 de lado)
+    --px 1024           resolução final (por defeito, a do interior exportado)
+    --relief 40         exagero do relevo (por defeito, o da exportação)
+    --out ficheiro.png  onde guardar (por defeito <pasta>/render-<estilo>.png)
+    --no-post           sem pós-processamento (os tiles do mundo levam-no no mosaico inteiro)
     --no-trees          sem árvores (para comparar e para renders rápidos)
     --cpu               força o processador (por defeito usa a GPU do Mac, via Metal, se houver)
     --save-blend        guarda também a cena (prova.blend) para abrir e mexer no Blender
@@ -26,8 +30,8 @@ import numpy as np
 
 def parse_args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    opts = {"dir": None, "samples": 96, "px": None, "relief": 40.0, "trees": True, "cpu": False, "save_blend": False,
-            "style": "maqueta"}
+    opts = {"dir": None, "samples": 96, "px": None, "relief": None, "trees": True, "cpu": False, "save_blend": False,
+            "style": "atlas", "out": None, "post": True}
     it = iter(argv)
     for a in it:
         if a == "--samples":
@@ -44,6 +48,10 @@ def parse_args():
             opts["save_blend"] = True
         elif a == "--style":
             opts["style"] = next(it)
+        elif a == "--out":
+            opts["out"] = Path(next(it))
+        elif a == "--no-post":
+            opts["post"] = False
         else:
             opts["dir"] = Path(a)
     if not opts["dir"]:
@@ -54,15 +62,17 @@ def parse_args():
 O = parse_args()
 D = O["dir"].resolve()
 meta = json.loads((D / "meta.json").read_text())
-SIZE = float(meta["size"])                     # lado do recorte, em unidades do mundo (= unidades do Blender)
-PX = O["px"] or meta["px"]
+KPU = float(meta["px_per_unit"])               # píxeis por unidade do mundo
+N = int(meta["n"])                             # lado da janela exportada (com margem), em píxeis
+SIZE = N / KPU                                 # lado da janela em unidades do mundo (= unidades do Blender)
+INNER = meta["tile"] / KPU                     # o que a câmara mostra
+PX = O["px"] or meta["tile"]
 height = np.load(D / "height.npy")             # 0..~1, linha 0 = norte
-forest = np.load(D / "forest.npy")
 sea = np.load(D / "sea.npy")
-burgs = json.loads((D / "burgs.json").read_text())
-N = height.shape[0]
-RELIEF = O["relief"]
-HMAX = float(height.max()) or 1.0
+trees_pts = np.load(D / "trees.npy")           # x, y (px da janela), tipo, escala, rotação
+houses_pts = np.load(D / "houses.npy")         # x, y, rotação, escala
+RELIEF = O["relief"] or float(meta["relief"])
+HMAX = float(meta.get("hmax") or height.max() or 1.0)    # global: a neve começa à mesma altura em todos os tiles
 
 # estilos: só luz, cores, árvores e pós-processamento mudam; o terreno é o mesmo
 STYLES = {
@@ -119,7 +129,7 @@ def image_node(nt, path, non_color=False):
 
 
 # ------------------------------------------------------------------------------------------------ terreno
-GRID = 1024                                     # vértices por lado (~1 M); o detalhe fino vem do bump
+GRID = N // 2                                   # um vértice a cada 2 px; o detalhe fino vem do bump
 bpy.ops.mesh.primitive_grid_add(x_subdivisions=GRID, y_subdivisions=GRID, size=SIZE, calc_uvs=True,
                                 location=(SIZE / 2, SIZE / 2, 0))
 terrain = bpy.context.active_object
@@ -133,8 +143,6 @@ h = sample(height, wx, wy)
 depth = sample(sea, wx, wy)
 co[:, 2] = np.where(h > 0, h * RELIEF + 0.15, -0.6 - depth * 2.5)      # a terra fica acima da água; o fundo desce
 me.vertices.foreach_set("co", co.ravel())
-attr = me.attributes.new("forest", "FLOAT", "POINT")
-attr.data.foreach_set("value", sample(forest, wx, wy).astype(np.float32))
 me.update()
 bpy.ops.object.shade_smooth()
 
@@ -278,61 +286,73 @@ for ob in (conifer, broad):
     lib.objects.unlink(ob)
     trees.objects.link(ob)
 
-if O["trees"]:
-    ng = bpy.data.node_groups.new("Floresta", "GeometryNodeTree")
+def points_object(name, xy_px, attrs):
+    """Nuvem de pontos (vértices soltos) pousada no terreno, com atributos para o Geometry Nodes."""
+    x = xy_px[:, 0] / KPU
+    y = SIZE - xy_px[:, 1] / KPU
+    z = sample(height, x, y) * RELIEF + 0.15
+    me = bpy.data.meshes.new(name)
+    me.vertices.add(len(x))
+    me.vertices.foreach_set("co", np.column_stack([x, y, z]).astype(np.float32).ravel())
+    for key, (kind, values) in attrs.items():
+        at = me.attributes.new(key, kind, "POINT")
+        at.data.foreach_set("value", values)
+    ob = bpy.data.objects.new(name, me)
+    scene.collection.objects.link(ob)
+    return ob
+
+
+def instancer(ob, source, index_attr=None, scale_mult=1.0):
+    """Geometry Nodes: uma instância de `source` (coleção ou objeto) em cada ponto, com escala e rotação dos
+    atributos "scale" e "rot" e, numa coleção, o modelo escolhido pelo atributo index_attr."""
+    ng = bpy.data.node_groups.new(ob.name + "GN", "GeometryNodeTree")
     ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
     ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
     nn, L = ng.nodes, ng.links
     gin, gout = nn.new("NodeGroupInput"), nn.new("NodeGroupOutput")
-    attr_n = nn.new("GeometryNodeInputNamedAttribute")
-    attr_n.data_type = "FLOAT"
-    attr_n.inputs["Name"].default_value = "forest"
-    dens = nn.new("ShaderNodeMath")
-    dens.operation = "MULTIPLY"
-    dens.inputs[1].default_value = ST["tree_density"]        # árvores por unidade² onde a floresta é densa
-    L.new(attr_n.outputs["Attribute"], dens.inputs[0])
-    dist = nn.new("GeometryNodeDistributePointsOnFaces")
-    dist.inputs["Seed"].default_value = 7
-    L.new(gin.outputs["Geometry"], dist.inputs["Mesh"])
-    L.new(dens.outputs["Value"], dist.inputs["Density"])
-    normal = nn.new("GeometryNodeInputNormal")
-    sepn = nn.new("ShaderNodeSeparateXYZ")
-    L.new(normal.outputs["Normal"], sepn.inputs["Vector"])
-    gt = nn.new("ShaderNodeMath")
-    gt.operation = "GREATER_THAN"
-    gt.inputs[1].default_value = 0.82                        # sem árvores em encostas a pique
-    L.new(sepn.outputs["Z"], gt.inputs[0])
-    L.new(gt.outputs["Value"], dist.inputs["Selection"])
-    coll = nn.new("GeometryNodeCollectionInfo")
-    coll.inputs["Collection"].default_value = trees
-    coll.inputs["Separate Children"].default_value = True
-    coll.inputs["Reset Children"].default_value = True
-    rnd_i = nn.new("FunctionNodeRandomValue")
-    rnd_i.data_type = "INT"
-    rnd_i.inputs["Min"].default_value = 0
-    rnd_i.inputs["Max"].default_value = 1
-    rnd_s = nn.new("FunctionNodeRandomValue")
-    rnd_s.data_type = "FLOAT"
-    rnd_s.inputs["Min"].default_value = 0.6 * ST["tree_scale"]
-    rnd_s.inputs["Max"].default_value = 1.25 * ST["tree_scale"]
-    rnd_s.inputs["Seed"].default_value = 3
-    rnd_r = nn.new("FunctionNodeRandomValue")
-    rnd_r.data_type = "FLOAT_VECTOR"
-    rnd_r.inputs["Max"].default_value = (0.08, 0.08, 6.283)
-    rnd_r.inputs["Seed"].default_value = 5
     inst = nn.new("GeometryNodeInstanceOnPoints")
-    inst.inputs["Pick Instance"].default_value = True
-    L.new(dist.outputs["Points"], inst.inputs["Points"])
-    L.new(coll.outputs["Instances"], inst.inputs["Instance"])
-    L.new(rnd_i.outputs[2], inst.inputs["Instance Index"])
-    L.new(rnd_s.outputs[1], inst.inputs["Scale"])
-    L.new(rnd_r.outputs[0], inst.inputs["Rotation"])
-    join = nn.new("GeometryNodeJoinGeometry")
-    L.new(gin.outputs["Geometry"], join.inputs["Geometry"])
-    L.new(inst.outputs["Instances"], join.inputs["Geometry"])
-    L.new(join.outputs["Geometry"], gout.inputs["Geometry"])
-    mod = terrain.modifiers.new("Floresta", "NODES")
+    L.new(gin.outputs["Geometry"], inst.inputs["Points"])
+    if isinstance(source, bpy.types.Collection):
+        src = nn.new("GeometryNodeCollectionInfo")
+        src.inputs["Collection"].default_value = source
+        src.inputs["Separate Children"].default_value = True
+        src.inputs["Reset Children"].default_value = True
+        inst.inputs["Pick Instance"].default_value = True
+        idx = nn.new("GeometryNodeInputNamedAttribute")
+        idx.data_type = "INT"
+        idx.inputs["Name"].default_value = index_attr
+        L.new(idx.outputs["Attribute"], inst.inputs["Instance Index"])
+    else:
+        src = nn.new("GeometryNodeObjectInfo")
+        src.inputs["Object"].default_value = source
+    L.new(src.outputs["Instances" if isinstance(source, bpy.types.Collection) else "Geometry"], inst.inputs["Instance"])
+    sc = nn.new("GeometryNodeInputNamedAttribute")
+    sc.data_type = "FLOAT"
+    sc.inputs["Name"].default_value = "scale"
+    mul = nn.new("ShaderNodeMath")
+    mul.operation = "MULTIPLY"
+    mul.inputs[1].default_value = scale_mult
+    L.new(sc.outputs["Attribute"], mul.inputs[0])
+    L.new(mul.outputs["Value"], inst.inputs["Scale"])
+    rt = nn.new("GeometryNodeInputNamedAttribute")
+    rt.data_type = "FLOAT"
+    rt.inputs["Name"].default_value = "rot"
+    comb = nn.new("ShaderNodeCombineXYZ")
+    L.new(rt.outputs["Attribute"], comb.inputs["Z"])
+    eul = nn.new("FunctionNodeEulerToRotation")
+    L.new(comb.outputs["Vector"], eul.inputs["Euler"])
+    L.new(eul.outputs["Rotation"], inst.inputs["Rotation"])
+    L.new(inst.outputs["Instances"], gout.inputs["Geometry"])
+    mod = ob.modifiers.new("Instancias", "NODES")
     mod.node_group = ng
+
+
+if O["trees"] and len(trees_pts):
+    tree_ob = points_object("PontosArvores", trees_pts[:, :2], {
+        "kind": ("INT", trees_pts[:, 2].astype(np.int32)),
+        "scale": ("FLOAT", trees_pts[:, 3]),
+        "rot": ("FLOAT", trees_pts[:, 4])})
+    instancer(tree_ob, trees, "kind", ST["tree_scale"])
 
 # ------------------------------------------------------------------------------------------------ povoações
 house_mat = material("Casas", lambda nt, b: (setattr(b.inputs["Base Color"], "default_value", (0.62, 0.42, 0.30, 1)),
@@ -358,26 +378,11 @@ bpy.ops.object.join()
 for c in house.users_collection:
     c.objects.unlink(house)
 lib.objects.link(house)
-town = bpy.data.collections.new("Povoacoes")
-scene.collection.children.link(town)
-rng = np.random.default_rng(11)
-k = N / SIZE
-for b in burgs:
-    n = int(np.clip(3 + b["pop"] * 1.5, 3, 18)) + (8 if b["capital"] else 0)
-    bx, by = b["x"] / k, SIZE - b["y"] / k
-    for i in range(n):
-        r = rng.uniform(0, 0.6 + 0.35 * math.sqrt(n))
-        a = rng.uniform(0, 2 * math.pi)
-        x, y = bx + r * math.cos(a), by + r * math.sin(a)
-        z = float(sample(height, np.array([x]), np.array([y]))[0])
-        if z <= 0:
-            continue
-        ob = house.copy()
-        ob.location = (x, y, z * RELIEF + 0.15)
-        ob.rotation_euler[2] = rng.uniform(0, math.pi)
-        s = rng.uniform(0.8, 1.2) * (1.25 if b["capital"] else 1)
-        ob.scale = (s, s, s)
-        town.objects.link(ob)
+if len(houses_pts):
+    house_ob = points_object("PontosCasas", houses_pts[:, :2], {
+        "rot": ("FLOAT", houses_pts[:, 2]),
+        "scale": ("FLOAT", houses_pts[:, 3])})
+    instancer(house_ob, house)
 
 # ------------------------------------------------------------------------------------------------ luz, câmara, render
 bpy.ops.object.light_add(type="SUN", location=(0, 0, 50))
@@ -396,7 +401,7 @@ bg.inputs["Strength"].default_value = ST["sky_strength"]
 bpy.ops.object.camera_add(location=(SIZE / 2, SIZE / 2, 200), rotation=(0, 0, 0))
 cam = bpy.context.active_object
 cam.data.type = "ORTHO"
-cam.data.ortho_scale = SIZE
+cam.data.ortho_scale = INNER                                  # só o interior; a margem fica fora
 cam.data.clip_end = 1000
 scene.camera = cam
 
@@ -411,7 +416,7 @@ scene.view_settings.view_transform = "Standard"           # cores fiéis à pale
 scene.view_settings.look = "None"
 scene.view_settings.exposure = ST["exposure"]
 scene.render.image_settings.file_format = "PNG"
-OUT = D / f"render-{O['style']}.png"
+OUT = O["out"] or D / f"render-{O['style']}.png"
 scene.render.filepath = str(OUT)
 
 if not O["cpu"]:
@@ -456,8 +461,9 @@ def post(path, style):
     px = np.empty(w * h * 4, np.float32)
     img.pixels.foreach_get(px)
     col = px.reshape(h, w, 4)[::-1, :, :3].copy()                   # linha 0 = norte
-    yi = (np.arange(h) * N // h)
-    xi = (np.arange(w) * N // w)
+    pad, inner = int(meta["pad"]), int(meta["tile"])
+    yi = pad + np.arange(h) * inner // h
+    xi = pad + np.arange(w) * inner // w
     hm = height[yi][:, xi]
     land = (hm > 0).astype(np.float32)
     rng = np.random.default_rng(5)
@@ -492,5 +498,6 @@ def post(path, style):
     img.save()
 
 
-post(OUT, O["style"])
+if O["post"]:
+    post(OUT, O["style"])
 print("guardado:", OUT)

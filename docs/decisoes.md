@@ -106,3 +106,18 @@ Formato: data — decisão — porquê — o que fica em aberto.
   - Guardiões nunca retaliam: são presa fácil para jogadores agressivos, e quem chega pode receber um reino já
     reduzido. A atribuição "mais intacto" mitiga, mas não resolve se todos os guardiões estiverem a ser comidos.
   - O reino recebido varia muito (na simulação, de 4 a 55 regiões): é a sorte do momento em que se entra.
+
+## 2026-10-15 — Base do mapa renderizada no Blender, estilo atlas, em tiles
+
+- **Decisão:** a base do mapa passa a ser renderizada no Blender (relevo com erosão, florestas, povoações, mar) no
+  estilo **atlas** (luz quente, árvores grandes e espaçadas, papel e tinta na costa), em tiles de 512 px por nível
+  de zoom, com 5,3 px por unidade no nível de mais detalhe (opção A). Render feito aqui, verificado e entregue.
+- **Porquê:** a prova lado a lado mostrou muito mais detalhe e leitura do relevo do que a base pintada em Python,
+  sobretudo ao aproximar. Tudo continua determinístico e sem IA.
+- **Consequências:**
+  - O renderizador carrega só os tiles visíveis; a `base.jpg` (agora também saída do Blender) fica de reserva.
+  - Relevo, cores e árvores são calculados para o mundo inteiro ou por coordenadas do mundo, para não haver
+    costuras; papel e tinta aplicam-se ao mosaico inteiro.
+  - `tiles.json` diz que regiões cada tile toca: o servidor real envia a cada jogador só os tiles que ele conhece.
+- **Aceite:** um tile pode mostrar a geografia de províncias vizinhas desconhecidas (nunca donos nem exércitos).
+- **Em aberto:** neve nas zonas mais altas; mundos maiores (tamanho enorme) levam proporcionalmente mais tempo.
