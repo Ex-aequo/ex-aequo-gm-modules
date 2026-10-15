@@ -9,7 +9,7 @@ da mesma coisa (o primeiro caso: `map-renderer`).
 
 | Módulo | Estado | O que faz |
 |---|---|---|
-| [world-map](modules/world-map/) | protótipo | Mapa-mundo a partir de dados Azgaar: base pintada determinística, regiões jogáveis, fronteiras e Praga em WebGL2 |
+| [world-map](modules/world-map/) | protótipo | Gerador de mundos: continentes, ilhas e mares à escolha, 25–150 reinos equilibrados, clima e nomes do Azgaar, base pintada determinística |
 | [turn-engine](modules/turn-engine/) | protótipo | Motor de turnos determinístico (regras v0.4), ordens de GM, bots e simulação com políticas de GM |
 | [map-renderer](modules/map-renderer/) | protótipo | Renderizador partilhado do mapa (WebGL2), usado pela demo do mapa e pelo painel do GM |
 | [gm-panel](modules/gm-panel/) | protótipo | Painel do mestre de jogo em modo sandbox: FastAPI + React, controlo da Praga, pré-visualização de turnos |

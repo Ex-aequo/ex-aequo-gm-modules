@@ -59,7 +59,7 @@ class Sandbox:
         with self.lock:
             for f in (self.dir / "turns").glob("state_*.json") if (self.dir / "turns").exists() else []:
                 f.unlink()
-            self.state = new_game(self.world, self.rules, "small", rng_seed)
+            self.state = new_game(self.world, self.rules, None, rng_seed)
             self.pending: list[dict] = []
             self.history: list[dict] = [self._metrics(self.state)]
             self.chronicle: list[dict] = [{"turn": 1, "kind": "info",

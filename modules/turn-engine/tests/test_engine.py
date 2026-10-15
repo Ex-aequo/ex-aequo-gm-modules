@@ -198,3 +198,44 @@ class EngineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(WORLD.exists(), f"falta {WORLD} (gerar com o módulo world-map)")
+class WorldStartTests(unittest.TestCase):
+    """Início 'world': reinos com território e capital vindos do world.json (mundos com reinos próprios)."""
+
+    def make_world(self):
+        import json
+        raw = json.loads(WORLD.read_text())
+        regions = {r["id"]: r for r in raw["regions"]}
+        for r in raw["regions"]:
+            r["owner"] = FREE
+        # dois reinos de 3 províncias contíguas, um sem ferro nenhum
+        taken = set()
+        kingdoms = []
+        for start in sorted(regions):
+            group = [start] + [n for n in regions[start]["neighbors"] if n not in taken][:2]
+            if len(group) == 3 and not taken & set(group) and not any(
+                    n in taken for g in group for n in regions[g]["neighbors"]):
+                kingdoms.append(group)
+                taken |= set(group)
+            if len(kingdoms) == 2:
+                break
+        raw["factions"] = [{"id": 0, "name": "Terras Livres", "color": "#999999"}]
+        for fid, group in enumerate(kingdoms, start=1):
+            raw["factions"].append({"id": fid, "name": f"R{fid}", "color": "#123456", "capital": group[0]})
+            for rid in group:
+                regions[rid]["owner"] = fid
+        return WorldMap(raw, DEFAULT), kingdoms
+
+    def test_world_start_uses_kingdoms(self):
+        world, kingdoms = self.make_world()
+        self.assertTrue(world.has_kingdoms)
+        s = new_game(world, DEFAULT)                     # sem 'start': escolhe 'world' sozinho
+        for fid, group in enumerate(kingdoms, start=1):
+            self.assertEqual(sorted(s.regions_of(fid)), sorted(group))
+            self.assertEqual(s.armies_of(fid)[0].region, group[0])
+            iron = any(world.regions[r].base["iron"] for r in group) or s.regions[group[0]].iron_bonus > 0
+            self.assertTrue(iron, "ferro garantido no início")
+        free = [r for r in s.regions.values() if r.owner == FREE]
+        self.assertTrue(free and all(r.garrison > 0 for r in free))

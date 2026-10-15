@@ -1,0 +1,16 @@
+# Mundo de teste no limite superior: 150 reinos, 5 continentes, mar interior.
+# Gerar: python tools/export_azgaar.py worlds/teste150.toml build/teste150
+#        python tools/build_world.py build/teste150/world_full.json build/teste150/data --config worlds/teste150.toml
+
+[world]
+name = "teste150"
+seed = "ex-aequo-150"
+[mundo]
+tamanho = "enorme"
+[geografia]
+continentes = 5
+terra = 0.45
+ilhas = "muitas"
+mar_interior = true
+[politica]
+reinos = 150

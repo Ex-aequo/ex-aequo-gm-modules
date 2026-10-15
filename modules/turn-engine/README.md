@@ -39,8 +39,9 @@ O `world.json` gera-se com o módulo [world-map](../world-map/).
 
 ## O que a simulação faz
 
-- 24 fações-bot (estilos rodam entre expansionista, construtor e defensor), arranque pequeno: capital + 2 regiões
-  com ferro garantido. A Praga começa adormecida; uma política de GM simulada (`--gm`) decide quando desperta.
+- Uma fação-bot por reino (estilos rodam entre expansionista, construtor e defensor). Arranque (`--start`):
+  `world` (padrão em mundos com reinos próprios: o território do `world.json`, todos com o mesmo n.º de províncias)
+  ou `small` (padrão nos mundos antigos: capital + 2 regiões). Ferro garantido nos dois. A Praga começa adormecida; uma política de GM simulada (`--gm`) decide quando desperta.
 - Cada variante corre em várias seeds (`--seeds`); o resumo dá média e mínimo–máximo.
 - 3 fações deixam de enviar ordens nos turnos 25, 40 e 60 (testa regência e dissolução).
 - Entram jogadores novos nos turnos 20, 50 e 75, se houver lugar (teto de 25 ativas).

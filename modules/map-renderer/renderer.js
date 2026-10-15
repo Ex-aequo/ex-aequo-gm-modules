@@ -88,7 +88,7 @@ int regionAt(vec2 w) {
   vec4 v = texelFetch(uRegion, c, 0);
   return int(v.r * 255.0 + 0.5) + int(v.g * 255.0 + 0.5) * 256;
 }
-vec4 regInfo(int id) { return texelFetch(uRegLut, ivec2(id, 0), 0); }
+vec4 regInfo(int id) { return texelFetch(uRegLut, ivec2(id % 1024, id / 1024), 0); }
 int ownerOf(int id) { vec4 r = regInfo(id); return int(r.r * 255.0 + 0.5) + int(r.g * 255.0 + 0.5) * 256; }
 vec3 facColor(int o) { return texelFetch(uFacLut, ivec2(o, 0), 0).rgb; }
 
@@ -255,8 +255,10 @@ void main() {
   makeTex(0, baseImg, { mip: true });
   makeTex(1, regionImg, { nearest: true });
 
-  const LUT_W = 1024;
-  const regLut = new Uint8Array(LUT_W * 4);
+  const LUT_W = 1024;                                  // tabela de regiões em 2D: 1024 x LUT_H (até 4095 regiões)
+  const LUT_H = Math.max(1, Math.ceil((NREG + 1) / LUT_W));
+  if (LUT_H > 4) throw new Error(`demasiadas regiões (${NREG}); o máximo é 4095`);
+  const regLut = new Uint8Array(LUT_W * LUT_H * 4);
   const facLut = new Uint8Array(256 * 4);
   for (const [unit] of [[2], [3]]) {
     gl.activeTexture(gl.TEXTURE0 + unit);
@@ -300,7 +302,7 @@ void main() {
       regLut[id * 4 + 3] = 255;
     }
     gl.activeTexture(gl.TEXTURE2);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, LUT_W, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, regLut);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, LUT_W, LUT_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, regLut);
   }
 
   // ------------------------------------------------------------------ câmara e entrada

@@ -5,11 +5,13 @@ Lê o Full JSON do Azgaar e produz, em web/data/:
   base.jpg     - camada base "pintada" (relevo sombreado, biomas, oceano, costa), gerada de forma determinística
   regions.png  - raster de IDs de região (R = id & 255, G = id >> 8; 0 = água), usado pelo shader do mapa
 
-Uso: python tools/build_world.py build/praga/world_full.json web/data
+Uso: python tools/build_world.py build/praga/world_full.json web/data [--config worlds/<nome>.toml]
+Com --config e uma secção [politica], as províncias e os reinos são nossos (tools/partition.py) em vez dos do Azgaar.
 """
 import json
 import math
 import sys
+import tomllib
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -19,8 +21,19 @@ from scipy import ndimage
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import cKDTree
 
-SRC = Path(sys.argv[1])
-OUT = Path(sys.argv[2])
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from partition import (PartitionError, kingdom_colors, make_kingdoms, make_provinces,  # noqa: E402
+                       province_names)
+
+args = sys.argv[1:]
+CONFIG = None
+if "--config" in args:
+    i = args.index("--config")
+    CONFIG = tomllib.loads(Path(args[i + 1]).read_text())
+    del args[i:i + 2]
+SRC = Path(args[0])
+OUT = Path(args[1])
+POLITICS = (CONFIG or {}).get("politica")
 OUT.mkdir(parents=True, exist_ok=True)
 SCALE = 2          # pixels de raster por unidade do mundo
 SEA_LEVEL = 20     # convenção do Azgaar
@@ -37,7 +50,10 @@ pts = np.array([c["p"] for c in cells], dtype=np.float64)
 heights = np.array([c["h"] for c in cells], dtype=np.float64)
 biome = np.array([c["biome"] for c in cells], dtype=np.int32)
 land = heights >= SEA_LEVEL
-lake_features = {f["i"] for f in pack["features"][1:] if isinstance(f, dict) and f.get("type") == "lake"}
+# lagos grandes (mares interiores, opção [geografia] mar_interior) contam como mar: costa navegável e cor de mar
+BIG_LAKE = max(100, int(0.004 * int(land.sum())))
+lake_features = {f["i"] for f in pack["features"][1:]
+                 if isinstance(f, dict) and f.get("type") == "lake" and f.get("cells", 0) < BIG_LAKE}
 is_lake = np.array([c["f"] in lake_features for c in cells])
 
 # ---------------------------------------------------------------------------
@@ -45,49 +61,98 @@ is_lake = np.array([c["f"] in lake_features for c in cells])
 # ---------------------------------------------------------------------------
 region_of_cell = np.zeros(len(cells), dtype=np.int32)  # 0 = água
 regions = []
-prov_to_region = {}
-for prov in pack["provinces"][1:]:
-    if not isinstance(prov, dict) or prov.get("removed"):
-        continue
-    rid = len(regions) + 1
-    prov_to_region[prov["i"]] = rid
-    regions.append({"id": rid, "kind": "province", "name": prov["name"], "fullName": prov.get("fullName", prov["name"]),
-                    "owner": prov["state"], "cells": []})
-
-for i, c in enumerate(cells):
-    if land[i] and c["province"] in prov_to_region:
-        region_of_cell[i] = prov_to_region[c["province"]]
-
-# Terra sem província -> componentes ligadas viram ermos (bom ponto de origem para a Praga)
-orphan = [i for i in range(len(cells)) if land[i] and region_of_cell[i] == 0]
-seen = set()
 wild_count = 0
-for start in orphan:
-    if start in seen:
-        continue
-    comp, q = [], deque([start])
-    seen.add(start)
-    while q:
-        u = q.popleft()
-        comp.append(u)
-        for v in cells[u]["c"]:
-            if land[v] and region_of_cell[v] == 0 and v not in seen:
-                seen.add(v)
-                q.append(v)
-    if len(comp) < 3:
-        # fragmentos minúsculos: juntar à região vizinha mais comum
-        nb = [region_of_cell[v] for u in comp for v in cells[u]["c"] if region_of_cell[v] > 0]
-        if nb:
-            target = max(set(nb), key=nb.count)
-            for u in comp:
-                region_of_cell[u] = target
+partition_report = None
+if POLITICS:
+    # Províncias e reinos próprios: todos os reinos com o mesmo número de províncias (tools/partition.py)
+    land_cells = [i for i in range(len(cells)) if land[i]]
+    plist = [tuple(p) for p in pts.tolist()]
+    prov_of, n_prov = make_provinces(plist, land_cells, [c["c"] for c in cells])
+    prov_cells = [[] for _ in range(n_prov)]
+    for c, p in prov_of.items():
+        prov_cells[p].append(c)
+    prov_area = [sum(cells[c]["area"] for c in pc) for pc in prov_cells]
+    prov_center = [(sum(pts[c][0] * cells[c]["area"] for c in pc) / a, sum(pts[c][1] * cells[c]["area"] for c in pc) / a)
+                   for pc, a in zip(prov_cells, prov_area)]
+    prov_adj = [set() for _ in range(n_prov)]
+    for c, p in prov_of.items():
+        for v in cells[c]["c"]:
+            q = prov_of.get(v)
+            if q is not None and q != p:
+                prov_adj[p].add(q)
+    prov_adj = [sorted(a) for a in prov_adj]
+    prov_value = [sum(cells[c]["pop"] for c in pc) for pc in prov_cells]
+    try:
+        owner, cap_of, P, bonus, value, pnotes = make_kingdoms(prov_cells, prov_adj, prov_center, prov_value,
+                                                               int(POLITICS.get("reinos", 25)),
+                                                               float(POLITICS.get("territorio_inicial", 0.30)))
+    except PartitionError as e:
+        sys.exit(f"erro na política do mundo: {e}")
+    burg_list = pack["burgs"]
+    cell_burg = [c.get("burg", 0) for c in cells]
+    burg_pop = {b["i"]: b.get("population", 0) for b in burg_list[1:] if b and not b.get("removed")}
+    burg_name = {b["i"]: b["name"] for b in burg_list[1:] if b and not b.get("removed")}
+    cell_burg = [b if b in burg_pop else 0 for b in cell_burg]
+    azprov = {pr["i"]: pr for pr in pack["provinces"][1:] if isinstance(pr, dict) and not pr.get("removed")}
+    names = province_names(prov_cells, prov_center, pts.tolist(), cell_burg, burg_pop, burg_name,
+                           [c["province"] for c in cells], azprov)
+    for p in range(n_prov):
+        regions.append({"id": p + 1, "kind": "province", "name": names[p], "fullName": names[p],
+                        "owner": owner[p], "cells": []})
+    for c, p in prov_of.items():
+        region_of_cell[c] = p + 1
+    partition_report = {"provincias": n_prov, "reinos": len(cap_of), "provincias_por_reino": P,
+                        "territorio_inicial": float(POLITICS.get("territorio_inicial", 0.30)),
+                        "compensados": {str(f): b for f, b in bonus.items()},
+                        "celulas_por_provincia": sorted(len(pc) for pc in prov_cells)[n_prov // 2],
+                        "valor_reinos_min_mediana_max": [round(min(value.values()), 1),
+                                                         round(sorted(value.values())[len(value) // 2], 1),
+                                                         round(max(value.values()), 1)],
+                        "notas": pnotes}
+else:
+    prov_to_region = {}
+    for prov in pack["provinces"][1:]:
+        if not isinstance(prov, dict) or prov.get("removed"):
             continue
-    rid = len(regions) + 1
-    wild_count += 1
-    regions.append({"id": rid, "kind": "wild", "name": f"Ermos {wild_count}", "fullName": f"Ermos {wild_count}",
-                    "owner": 0, "cells": []})
-    for u in comp:
-        region_of_cell[u] = rid
+        rid = len(regions) + 1
+        prov_to_region[prov["i"]] = rid
+        regions.append({"id": rid, "kind": "province", "name": prov["name"], "fullName": prov.get("fullName", prov["name"]),
+                        "owner": prov["state"], "cells": []})
+
+    for i, c in enumerate(cells):
+        if land[i] and c["province"] in prov_to_region:
+            region_of_cell[i] = prov_to_region[c["province"]]
+
+    # Terra sem província -> componentes ligadas viram ermos (bom ponto de origem para a Praga)
+    orphan = [i for i in range(len(cells)) if land[i] and region_of_cell[i] == 0]
+    seen = set()
+    wild_count = 0
+    for start in orphan:
+        if start in seen:
+            continue
+        comp, q = [], deque([start])
+        seen.add(start)
+        while q:
+            u = q.popleft()
+            comp.append(u)
+            for v in cells[u]["c"]:
+                if land[v] and region_of_cell[v] == 0 and v not in seen:
+                    seen.add(v)
+                    q.append(v)
+        if len(comp) < 3:
+            # fragmentos minúsculos: juntar à região vizinha mais comum
+            nb = [region_of_cell[v] for u in comp for v in cells[u]["c"] if region_of_cell[v] > 0]
+            if nb:
+                target = max(set(nb), key=nb.count)
+                for u in comp:
+                    region_of_cell[u] = target
+                continue
+        rid = len(regions) + 1
+        wild_count += 1
+        regions.append({"id": rid, "kind": "wild", "name": f"Ermos {wild_count}", "fullName": f"Ermos {wild_count}",
+                        "owner": 0, "cells": []})
+        for u in comp:
+            region_of_cell[u] = rid
 
 for i in range(len(cells)):
     if region_of_cell[i] > 0:
@@ -136,11 +201,29 @@ print(f"regiões: {len(regions)} ({len(regions) - wild_count} províncias, {wild
 # 2. Fações (estados do Azgaar; 0 = Neutros)
 # ---------------------------------------------------------------------------
 factions = []
-for s in pack["states"]:
-    if s.get("removed"):
-        continue
-    factions.append({"id": s["i"], "name": s["name"] if s["i"] else "Terras Livres",
-                     "fullName": s.get("fullName", s["name"]), "color": s.get("color", "#888888") if s["i"] else "#9a9488"})
+if POLITICS:
+    colors = kingdom_colors(cap_of, prov_center)
+    states = {st["i"]: st for st in pack["states"] if st.get("i") and not st.get("removed")}
+    used_names = set()
+    factions.append({"id": 0, "name": "Terras Livres", "fullName": "Terras Livres", "color": "#9a9488"})
+    spare = [st for st in sorted(states)]
+    for f in sorted(cap_of):
+        cap = cap_of[f]
+        cx, cy = prov_center[cap]
+        cc = min(prov_cells[cap], key=lambda c: ((pts[c][0] - cx) ** 2 + (pts[c][1] - cy) ** 2, c))
+        st = states.get(cells[cc]["state"])
+        if not st or st["name"] in used_names:
+            st = next((states[i] for i in spare if states[i]["name"] not in used_names), None)
+        name = st["name"] if st else f"Reino de {names[cap]}"
+        used_names.add(name)
+        full = st.get("fullName", name) if st else name
+        factions.append({"id": f, "name": name, "fullName": full, "color": colors[f], "capital": cap + 1})
+else:
+    for s in pack["states"]:
+        if s.get("removed"):
+            continue
+        factions.append({"id": s["i"], "name": s["name"] if s["i"] else "Terras Livres",
+                         "fullName": s.get("fullName", s["name"]), "color": s.get("color", "#888888") if s["i"] else "#9a9488"})
 
 # ---------------------------------------------------------------------------
 # 3. Rios, estradas e burgos (vetoriais, desenhados pelo cliente)
@@ -161,12 +244,31 @@ for b in pack["burgs"][1:]:
     burgs.append({"name": b["name"], "x": round(b["x"], 1), "y": round(b["y"], 1), "pop": round(b.get("population", 0), 1),
                   "capital": bool(b.get("capital")), "port": bool(b.get("port")),
                   "region": int(region_of_cell[b["cell"]])})
+if POLITICS:
+    # capitais dos nossos reinos: o maior burgo de cada província capital
+    cap_regions = {f["capital"] for f in factions if f.get("capital")}
+    best = {}
+    for b in burgs:
+        b["capital"] = False
+        if b["region"] in cap_regions and (b["region"] not in best or b["pop"] > best[b["region"]]["pop"]):
+            best[b["region"]] = b
+    for b in best.values():
+        b["capital"] = True
 burgs.sort(key=lambda b: (-b["capital"], -b["pop"]))
-burgs = burgs[:220]
+burgs = burgs[:max(220, 2 * len(factions) + 60)]
 
 world = {"name": d["info"]["mapName"], "seed": d["info"]["seed"], "width": W, "height": H, "rasterScale": SCALE,
          "factions": factions, "regions": regions, "rivers": rivers, "roads": roads, "burgs": burgs}
 (OUT / "world.json").write_text(json.dumps(world, ensure_ascii=False, separators=(",", ":")))
+if partition_report:
+    sizes = [r["area"] for r in regions]
+    partition_report["area_provincias_p10_p90"] = [sorted(sizes)[len(sizes) // 10], sorted(sizes)[9 * len(sizes) // 10]]
+    owned = defaultdict(int)
+    for r in regions:
+        owned[r["owner"]] += 1
+    partition_report["provincias_por_reino_obtidas"] = sorted(set(v for k, v in owned.items() if k))
+    (OUT / "relatorio-politica.json").write_text(json.dumps(partition_report, ensure_ascii=False, indent=1))
+    print("política:", partition_report)
 
 # ---------------------------------------------------------------------------
 # 4. Rasters: campo de altura suave, máscara de terra, IDs de região

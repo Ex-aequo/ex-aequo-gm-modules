@@ -3,7 +3,7 @@
 Uso (a partir de modules/turn-engine):
     python -m sim.run --world ../world-map/web/data/world.json --turns 200 --seeds 5 --out build/sim
 Opções:
-    --start small|azgaar   arranque pequeno e justo (padrão) ou território do Azgaar
+    --start small|world|azgaar   arranque pequeno, reinos do world.json, ou território do Azgaar (padrão: world se o mundo tiver reinos próprios, senão small)
     --set CAMPO=JSON       altera uma regra, ex.: --set 'plague_recede=0'
 """
 from __future__ import annotations
@@ -145,7 +145,7 @@ def main():
     ap.add_argument("--world", required=True)
     ap.add_argument("--turns", type=int, default=200)
     ap.add_argument("--seeds", type=int, default=5)
-    ap.add_argument("--start", choices=("small", "azgaar"), default="small")
+    ap.add_argument("--start", choices=("small", "world", "azgaar"), default=None)
     ap.add_argument("--out", default="build/sim")
     ap.add_argument("--set", action="append", default=[], metavar="CAMPO=JSON")
     ap.add_argument("--gm", choices=sorted(GM_POLICIES), default="always", help="política de GM simulada")

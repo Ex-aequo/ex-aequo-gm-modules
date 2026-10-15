@@ -52,3 +52,21 @@ Formato: data — decisão — porquê — o que fica em aberto.
   (primeira exceção à regra de módulos sem código comum).
 - **Pré-visualização exata:** como o motor e os bots são determinísticos, a previsão de N turnos é exatamente o que
   acontece ao resolver (há um teste que o garante). Com jogadores humanos passará a ser uma estimativa.
+
+## 2026-10-15 — Geografia e reinos próprios; o Azgaar fica com o clima e os nomes
+
+- **Decisão:** o relevo (n.º de continentes, fração de terra, ilhas, mar interior) é desenhado por nós e injetado no
+  Azgaar como mapa de alturas; províncias e reinos também são nossos. Do Azgaar ficam clima, biomas, rios, burgos e
+  nomes. Reinos em múltiplos de 25 até 150, todos com o mesmo número P de províncias contíguas (até +2 de
+  compensação para terra pobre); o resto do mundo são Terras Livres (opção 1.A). P sai do tamanho do mapa.
+- **Porquê:** os modelos de relevo do Azgaar não dão um número exato de continentes, e as províncias dele têm tamanhos
+  muito diferentes. Injetar um modelo nosso no Azgaar falhou (corrida na regeneração e pouco efeito); injetar a imagem
+  de alturas funciona e o Azgaar respeita os continentes (verificado em cada geração).
+- **Consequências:**
+  - O tamanho do mundo fica 1920 × 1080; "tamanho" muda a densidade de células. 150 reinos só cabem em `grande` ou
+    `enorme`, com 2–4 províncias por reino. O exportador recusa combinações que não cabem antes de gerar.
+  - O renderizador passou a aceitar até 4095 regiões (tabela 2D); o motor tem o arranque `world`.
+  - Um mundo `enorme` tem ~2000 regiões: o motor resolve um turno em ~0,15 s; o mapa aguenta.
+- **Em aberto:** as regras v0.4 foram calibradas com 24 fações e ~400 regiões. Com 150 reinos de 4 províncias, 29 %
+  dos reinos-bot desaparecem em 100 turnos (contra ~8 % com 25 reinos): é preciso re-simular e recalibrar
+  (pontos de comando, guarnições, ritmo da Praga por região) antes de escolher a escala do jogo.

@@ -44,10 +44,15 @@ class WorldMap:
         self.start_owner = {rid: r["owner"] for rid, r in raw.items()}
         self.start_pop = {rid: float(r["population"]) for rid, r in raw.items()}
         self.capitals = {}
+        # mundos com reinos próprios (tools/partition.py) trazem a capital de cada fação; os antigos usam os burgos
+        for f in world["factions"]:
+            if f.get("capital"):
+                self.capitals[f["id"]] = f["capital"]
+        self.has_kingdoms = bool(self.capitals)
         for b in world["burgs"]:
             if b["capital"] and b["region"]:
                 owner = raw[b["region"]]["owner"]
-                if owner:
+                if owner and not self.has_kingdoms:
                     self.capitals.setdefault(owner, b["region"])
 
         # ligações por mar: regiões costeiras próximas que não são vizinhas por terra
@@ -219,10 +224,17 @@ def place_foci(world: WorldMap, capitals: list[int], rules: Rules) -> list[int]:
     return chosen
 
 
-def new_game(world: WorldMap, rules: Rules, start: str = "small", rng_seed: str = "") -> GameState:
-    """start='azgaar': cada fação começa com o território do Azgaar (tamanhos muito desiguais).
+def new_game(world: WorldMap, rules: Rules, start: str | None = None, rng_seed: str = "") -> GameState:
+    """start='world': cada reino começa com o território do world.json — num mundo com reinos próprios, todos têm o
+    mesmo número de províncias (ferro garantido como em 'small'); o resto são Terras Livres guarnecidas.
+    start='azgaar': o mesmo, num mundo antigo com o território do Azgaar (tamanhos muito desiguais).
     start='small': capital + 2 regiões (com ferro garantido, §3.1); o resto são Terras Livres guarnecidas.
+    start=None: 'world' se o mundo tiver reinos próprios, senão 'small'.
     A Praga começa adormecida; os focos calculados são só sugestões para o GM (§6.1)."""
+    if start is None:
+        start = "world" if world.has_kingdoms else "small"
+    if start not in ("small", "world", "azgaar"):
+        raise ValueError(f"início desconhecido: {start}")
     regions: dict[int, Region] = {}
     for rid, info in world.regions.items():
         pop = world.start_pop[rid]
@@ -244,6 +256,10 @@ def new_game(world: WorldMap, rules: Rules, start: str = "small", rng_seed: str 
             mine = _start_regions(world, regions, cap)
             for rid in mine:
                 regions[rid].owner, regions[rid].garrison = fid, 0
+            if not any(world.regions[r].base["iron"] for r in mine):
+                regions[cap].iron_bonus = 2
+        elif start == "world":
+            mine = [r for r in regions if regions[r].owner == fid]
             if not any(world.regions[r].base["iron"] for r in mine):
                 regions[cap].iron_bonus = 2
         factions[fid] = Faction(id=fid, name=world.factions[fid]["name"], stock=dict(rules.start_treasury))

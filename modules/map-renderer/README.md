@@ -21,3 +21,7 @@ map.setOptions({ borders: true, plague: true, rivers: true, labels: true });
 
 O canvas ocupa o tamanho do contentor (ResizeObserver) e enquadra o mundo no primeiro tamanho real.
 A Praga anima enquanto houver regiões infetadas, exceto com `prefers-reduced-motion`.
+
+## Limites
+
+- Até **4095 regiões** (tabela de regiões em textura 1024 × 4) e **254 fações** (a 255 está reservada à Praga).
