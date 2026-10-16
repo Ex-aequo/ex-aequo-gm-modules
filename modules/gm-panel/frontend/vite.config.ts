@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const renderer = fileURLToPath(new URL("../../map-renderer/renderer.js", import.meta.url));
 
 export default defineConfig({
+  base: "./",                     // serve em / (sandbox) e em /gm/ (jogo real)
   plugins: [react()],
   resolve: { alias: { "@map-renderer": renderer } },
   server: {

@@ -15,6 +15,8 @@ map.setState({ owner, plague });       // arrays indexados pelo id da região; o
 map.setState({ fog });                 // nevoeiro por região: 0 desconhecida, 1 conhecida, 2 visível, 3 espiada/própria
 map.setState({ fog: null });           // desliga o nevoeiro (vista do GM)
 map.setMarkers([{ region: 115, kind: "suggestion" }, { region: 220, kind: "pending", label: "foco pendente" }]);
+// jogo: kind "army" (exército próprio), "foe" (exército visto), "agent", "target"; selected: true realça
+map.setPaths([{ regions: [12, 13, 14], kind: "move" }]);   // setas das ordens: "move" | "attack" | "agent"
 map.on("click", (regionId) => …);
 map.on("hover", (regionId) => …);
 map.focusOn(regionId, 3);              // centra e aproxima

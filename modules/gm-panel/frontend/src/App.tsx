@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MapMarker } from "@map-renderer";
-import { api } from "./api";
+import { api, GAME_MODE } from "./api";
 import { MapView } from "./MapView";
 import type {
   ChronicleEntry, GameState, GMOrder, InboxEntry, Intensity, KnownRegion, MapData, Metrics, PlayerView, Preview, RegionDetail,
@@ -53,6 +53,12 @@ export function App() {
   }, []);
 
   useEffect(() => { run("A carregar", async () => setGame(await api.state())); }, [run]);
+  // no jogo real, o estado muda sem o GM (ordens dos jogadores, relógio): relê-se de 20 em 20 s
+  useEffect(() => {
+    if (!GAME_MODE) return;
+    const t = setInterval(() => { api.state().then(setGame).catch(() => {}); }, 20000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     if (!viewAs) { setView(null); return; }
     run("A ler a vista do jogador", async () => setView(await api.view(viewAs)));
@@ -176,7 +182,7 @@ export function App() {
       <aside className="panel">
         <header className="panel-head">
           <div>
-            <div className="eyebrow">Mestre de jogo · sandbox</div>
+            <div className="eyebrow">Mestre de jogo · {GAME_MODE ? "jogo" : "sandbox"}</div>
             <h1>Praga</h1>
           </div>
           <div className="turn-box">
@@ -187,6 +193,10 @@ export function App() {
           </div>
         </header>
         {(busy || error) && <div className={`status ${error ? "err" : ""}`} role="status">{error ?? `${busy}…`}</div>}
+
+        {GAME_MODE && game.players && (
+          <PlayersCard game={game} busy={!!busy} onTimer={(m) => run("A acertar o relógio", async () => setGame(await api.timer(m)))} />
+        )}
 
         <section className="card">
           <h2>Ver como jogador</h2>
@@ -327,14 +337,14 @@ export function App() {
               ))}
             </tbody>
           </table>
-          <div className="row gap">
+          {!GAME_MODE && <div className="row gap">
             <button type="button" onClick={join} disabled={!!busy || !game.factions.some((f) => f.active && f.bot)}>
               Simular entrada de um jogador
             </button>
             <span className="muted small">
               {game.factions.filter((f) => f.active && f.bot).length} reinos-guardiões disponíveis; quem chega recebe o mais intacto.
             </span>
-          </div>
+          </div>}
           {game.factions.some((f) => !f.active) && (
             <p className="muted small">Fora do jogo: {game.factions.filter((f) => !f.active).map((f) => f.name).join(", ")}</p>
           )}
@@ -346,10 +356,52 @@ export function App() {
         </section>
 
         <footer className="panel-foot">
-          <button type="button" className="link" onClick={reset} disabled={!!busy}>Recomeçar o mundo (nova seed)</button>
+          {GAME_MODE
+            ? <button type="button" className="link" onClick={() => api.logout().finally(() => { location.href = "/"; })}>Sair</button>
+            : <button type="button" className="link" onClick={reset} disabled={!!busy}>Recomeçar o mundo (nova seed)</button>}
         </footer>
       </aside>
     </div>
+  );
+}
+
+function PlayersCard({ game, busy, onTimer }: { game: GameState; busy: boolean; onTimer: (minutes: number) => void }) {
+  const [now, setNow] = useState(Date.now());
+  const [minutes, setMinutes] = useState(game.timer_minutes || 60);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
+  const players = game.players ?? [];
+  const sent = players.filter((p) => p.submitted).length;
+  const left = game.deadline ? Math.max(0, Math.round((new Date(game.deadline).getTime() - now) / 60000)) : null;
+  return (
+    <section className="card">
+      <h2>Jogadores</h2>
+      <p className="small">{sent} de {players.length} já enviaram ordens neste turno. Quem não envia mantém as ordens permanentes (os exércitos guarnecem).</p>
+      <table className="factions">
+        <thead><tr><th>Conta</th><th>Reino</th><th>Ordens</th><th className="num" title="turnos seguidos sem ordens">Falhou</th></tr></thead>
+        <tbody>
+          {players.map((p) => (
+            <tr key={p.username}>
+              <td>{p.username}</td>
+              <td>{p.name}{!p.active ? " (fora do jogo)" : p.controller === "bot" ? " (passou a guardião)" : ""}</td>
+              <td>{p.submitted ? "enviadas" : "—"}</td>
+              <td className="num">{p.idle && p.idle > 1 ? `${p.idle - 1} t` : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3>Relógio</h3>
+      <p className="small">
+        {game.timer_minutes ? `O turno fecha sozinho de ${game.timer_minutes} em ${game.timer_minutes} min; este fecha daqui a ${left} min.`
+          : "Sem relógio: o turno só fecha quando carregas em «Resolver turno»."}
+      </p>
+      <div className="row gap">
+        <select aria-label="Duração do turno" value={minutes} onChange={(e) => setMinutes(+e.target.value)}>
+          {[10, 30, 60, 180, 720, 1440, 2880].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : m < 1440 ? `${m / 60} h` : `${m / 1440} dia(s)`}</option>)}
+        </select>
+        <button type="button" onClick={() => onTimer(minutes)} disabled={busy}>{game.timer_minutes ? "Mudar e reiniciar" : "Ligar relógio"}</button>
+        {!!game.timer_minutes && <button type="button" className="link" onClick={() => onTimer(0)} disabled={busy}>desligar</button>}
+      </div>
+    </section>
   );
 }
 

@@ -1,3 +1,4 @@
+import { DATA_URL } from "./api";
 import { useEffect, useRef, useState } from "react";
 import { createMapRenderer, type MapMarker, type MapRenderer } from "@map-renderer";
 import type { MapData } from "./types";
@@ -26,7 +27,7 @@ export function MapView({ data, markers, selected, focusTarget, onRegionClick, o
 
   useEffect(() => {
     let cancelled = false;
-    createMapRenderer({ canvas: glRef.current!, overlay: ovRef.current!, dataUrl: "/data" })
+    createMapRenderer({ canvas: glRef.current!, overlay: ovRef.current!, dataUrl: DATA_URL })
       .then((m) => {
         if (cancelled) return m.destroy();
         mapRef.current = m;

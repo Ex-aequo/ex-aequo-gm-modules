@@ -635,7 +635,18 @@ void main() { o = vec4(texture(uTile, vUv).rgb, 1.0); }`));
     suggestion: { stroke: "rgba(165, 209, 79, .95)", fill: "rgba(165, 209, 79, .18)", dash: [4, 3] },
     pending: { stroke: "rgba(107, 47, 110, 1)", fill: "rgba(165, 209, 79, .55)", dash: [] },
     focus: { stroke: "rgba(239, 228, 200, .95)", fill: "rgba(58, 29, 64, .7)", dash: [] },
+    // jogo: exércitos e agentes (forma própria, ver drawMarker)
+    army: { stroke: "#2b2620", fill: "#e8c862", dash: [], shape: "shield", dx: 0 },
+    foe: { stroke: "#2b2620", fill: "#b5523b", dash: [], shape: "shield", dx: 14 },
+    agent: { stroke: "#2b2620", fill: "#9fb7c9", dash: [], shape: "diamond", dx: -14 },
+    target: { stroke: "rgba(239, 228, 200, .95)", fill: "rgba(239, 228, 200, .12)", dash: [3, 3] },
   };
+  const PATH = {
+    move: { color: "rgba(232, 200, 98, .95)", dash: [6, 4], width: 2.5 },
+    attack: { color: "rgba(181, 82, 59, .95)", dash: [], width: 3 },
+    agent: { color: "rgba(159, 183, 201, .95)", dash: [2, 4], width: 2 },
+  };
+  let paths = [];
 
   function drawOverlay() {
     ov.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -671,15 +682,41 @@ void main() { o = vec4(texture(uTile, vUv).rgb, 1.0); }`));
     ov.restore();
 
     const sx = (x) => (x - cam.x) * z, sy = (y) => (y - cam.y) * z;
+    // caminhos das ordens (setas entre centros de regiões)
+    for (const pth of paths) {
+      const st = PATH[pth.kind] || PATH.move;
+      const pts = pth.regions.map((id) => regions[id - 1]).filter(Boolean).map((r) => [sx(r.center[0]), sy(r.center[1])]);
+      if (pts.length < 2) continue;
+      ov.setLineDash(st.dash); ov.lineWidth = st.width; ov.strokeStyle = st.color; ov.lineCap = "round";
+      ov.beginPath(); ov.moveTo(pts[0][0], pts[0][1]);
+      for (const q of pts.slice(1)) ov.lineTo(q[0], q[1]);
+      ov.stroke(); ov.setLineDash([]);
+      const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]];
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      ov.beginPath();
+      ov.moveTo(b[0], b[1]);
+      ov.lineTo(b[0] - 11 * Math.cos(ang - 0.45), b[1] - 11 * Math.sin(ang - 0.45));
+      ov.lineTo(b[0] - 11 * Math.cos(ang + 0.45), b[1] - 11 * Math.sin(ang + 0.45));
+      ov.closePath(); ov.fillStyle = st.color; ov.fill();
+    }
     // marcadores (tamanho constante no ecrã)
     for (const m of markers) {
       const r = regions[m.region - 1];
       if (!r) continue;
       const st = MARKER[m.kind] || MARKER.suggestion;
-      const x = sx(r.center[0]), y = sy(r.center[1]);
-      ov.beginPath(); ov.arc(x, y, 9, 0, Math.PI * 2);
+      const x = sx(r.center[0]) + (st.dx || 0), y = sy(r.center[1]);
+      ov.beginPath();
+      if (st.shape === "shield") {
+        ov.moveTo(x - 7, y - 8); ov.lineTo(x + 7, y - 8); ov.lineTo(x + 7, y + 1);
+        ov.quadraticCurveTo(x + 7, y + 7, x, y + 10); ov.quadraticCurveTo(x - 7, y + 7, x - 7, y + 1); ov.closePath();
+      } else if (st.shape === "diamond") {
+        ov.moveTo(x, y - 7); ov.lineTo(x + 6, y); ov.lineTo(x, y + 7); ov.lineTo(x - 6, y); ov.closePath();
+      } else {
+        ov.arc(x, y, 9, 0, Math.PI * 2);
+      }
       ov.fillStyle = st.fill; ov.fill();
-      ov.setLineDash(st.dash); ov.lineWidth = 2; ov.strokeStyle = st.stroke; ov.stroke(); ov.setLineDash([]);
+      ov.setLineDash(st.dash); ov.lineWidth = m.selected ? 3 : 1.6; ov.strokeStyle = m.selected ? "#fff6d8" : st.stroke;
+      ov.stroke(); ov.setLineDash([]);
       if (m.label) {
         ov.font = `600 11px "Spectral", Georgia, serif`; ov.textAlign = "center"; ov.textBaseline = "top";
         ov.lineWidth = 3; ov.strokeStyle = "rgba(20,16,12,.8)"; ov.strokeText(m.label, x, y + 12);
@@ -780,6 +817,8 @@ void main() { o = vec4(texture(uTile, vUv).rgb, 1.0); }`));
     setOptions(opts) { Object.assign(ui, opts); requestRedraw(true); },
     setSelected(id) { ui.selected = id || 0; requestRedraw(false); },
     setMarkers(list) { markers = list || []; requestRedraw(true); },
+    setPaths(list) { paths = list || []; requestRedraw(true); },
+    setCamera(c) { Object.assign(cam, c); requestRedraw(true); },
     on(evt, fn) { handlers[evt].push(fn); return () => { handlers[evt] = handlers[evt].filter((f) => f !== fn); }; },
     requestRedraw,
     destroy() {

@@ -49,7 +49,16 @@ export interface Snapshot {
   metrics: Metrics;
 }
 
+export interface PlayerAccount {
+  username: string; faction: number; name: string; active: boolean; controller: "player" | "bot" | null;
+  submitted: boolean; idle: number | null;
+}
+
 export interface GameState extends Snapshot {
+  mode?: "game";                  // só no jogo real (game-server)
+  players?: PlayerAccount[];
+  timer_minutes?: number;
+  deadline?: string | null;
   pending: GMOrder[];
   history: Metrics[];
   chronicle: ChronicleEntry[];

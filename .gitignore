@@ -3,6 +3,7 @@ build/
 modules/*/build/
 modules/*/web/data/
 modules/*/frontend/dist/
+modules/player-client/dist/
 
 # python
 __pycache__/

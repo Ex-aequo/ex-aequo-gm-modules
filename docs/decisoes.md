@@ -121,3 +121,14 @@ Formato: data — decisão — porquê — o que fica em aberto.
   - `tiles.json` diz que regiões cada tile toca: o servidor real envia a cada jogador só os tiles que ele conhece.
 - **Aceite:** um tile pode mostrar a geografia de províncias vizinhas desconhecidas (nunca donos nem exércitos).
 - **Em aberto:** neve nas zonas mais altas; mundos maiores (tamanho enorme) levam proporcionalmente mais tempo.
+
+## 2026-10-16 — Jogo jogável no Mac: servidor, contas e os dois frontends
+
+- **Decisão:** novo módulo `game-server` (FastAPI + PostgreSQL), um mundo por servidor, com contas de jogador e de
+  GM. O GM fecha o turno à mão e pode ligar um relógio. Todas as ordens no frontend dos jogadores
+  (`player-client`). O painel do GM é o mesmo do sandbox, em modo "jogo" em `/gm/`.
+- **Nevoeiro aplicado no servidor:** cada jogador recebe só o que conhece (dados, mapa e tiles). O sandbox continua
+  a servir tudo — é só para o GM.
+- **Arranque:** `modules/game-server/scripts/praga.sh setup` e `start`.
+- **Em aberto:** registo de contas e entrada de jogadores novos a meio (hoje é por script); HTTPS e alojamento;
+  notificações de fim de turno.
