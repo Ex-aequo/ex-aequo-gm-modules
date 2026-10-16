@@ -12,3 +12,4 @@ SESSION_DAYS = int(os.environ.get("PRAGA_SESSION_DAYS", "14"))
 COOKIE_SECURE = os.environ.get("PRAGA_COOKIE_SECURE", "0") == "1"      # 1 em produção (HTTPS)
 PLAYER_DIST = MODULES / "player-client/dist"
 GM_DIST = MODULES / "gm-panel/frontend/dist"
+WORLDS_DIR = Path(os.environ.get("PRAGA_WORLDS", str(MODULE / "worlds")))      # mundos gerados (bundles do Province-Forge)

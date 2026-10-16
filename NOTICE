@@ -1,15 +1,19 @@
 Third-party software used by this repository
 ============================================
 
-Azgaar's Fantasy Map Generator
-  https://github.com/Azgaar/Fantasy-Map-Generator
-  Copyright (c) 2017-2024 Max Haniyeu (Azgaar). MIT License.
-  Used as an external tool to generate world data (modules/world-map).
-  No Azgaar source code is included in this repository. Maps produced
-  with the generator may be used for any purpose, including commercial.
+Province Forge (vendor/province-forge, git submodule)
+  https://github.com/Ex-aequo/Province-Forge — Ex-Aequo Games (proprietary, same owner).
+  Map generator and map view used by the game server and both frontends.
+
+JavaScript libraries (installed with npm, not vendored):
+  React (MIT), Vite (MIT), d3-delaunay (ISC), simplex-noise (MIT), @napi-rs/canvas (MIT)
 
 Python libraries (installed separately, not vendored):
-  NumPy (BSD-3-Clause), SciPy (BSD-3-Clause), Pillow (MIT-CMU), Playwright (Apache-2.0)
+  FastAPI (MIT), Uvicorn (BSD-3-Clause), SQLAlchemy (MIT), psycopg (LGPL-3.0), NumPy (BSD-3-Clause),
+  SciPy (BSD-3-Clause), Pillow (MIT-CMU)
 
 Fonts loaded at runtime from Google Fonts (SIL Open Font License 1.1):
   IM Fell English, IM Fell English SC, Spectral
+
+Earlier versions of this repository used Azgaar's Fantasy Map Generator (MIT) as an external
+tool; it is no longer used (see docs/decisoes.md, 2026-10-16).

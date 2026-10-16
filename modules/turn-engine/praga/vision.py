@@ -184,18 +184,21 @@ def make_rumours(state: GameState, world: WorldMap, rules: Rules, events: list, 
         own_xy = [world.regions[r].center for r in own]
         dist = {}
         for _, rid in happened:
-            d = min(math.dist(world.regions[rid].center, c) for c in own_xy)
+            d = min(world.dist(world.regions[rid].center, c) for c in own_xy)
             if d <= rules.rumour_distance:
                 dist[rid] = d
-        cx = sum(world.regions[r].center[0] for r in own) / len(own)
-        cy = sum(world.regions[r].center[1] for r in own) / len(own)
+        # centro do reino, medido a partir da primeira região (o reino pode atravessar a volta do mundo)
+        o = world.regions[own[0]].center
+        ds = [world.delta(o, world.regions[r].center) for r in own]
+        cx, cy = o[0] + sum(d[0] for d in ds) / len(own), o[1] + sum(d[1] for d in ds) / len(own)
         # o mesmo rumor (tipo + direção) não se repete durante RUMOUR_QUIET turnos; no máximo 2 rumores por turno
         recent = {m.get("key") for m in state.inbox.get(fid, []) if m["turn"] > turn - RUMOUR_QUIET}
         heard = 0
         for kind, rid in sorted(happened, key=lambda kr: (kr[0] != "focus", dist.get(kr[1], 99), kr[1])):
             if heard >= 2 or rid in vis or rid not in dist:
                 continue
-            d = _direction((cx, cy), world.regions[rid].center)
+            dx, dy = world.delta((cx, cy), world.regions[rid].center)
+            d = _direction((0.0, 0.0), (dx, dy))
             key = f"{kind}:{d}"
             if key in recent:
                 continue

@@ -1,17 +1,42 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedParameters": false,
     "skipLibCheck": true,
     "allowJs": false,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@pf/*": [
+        "../../../vendor/province-forge/src/*"
+      ],
+      "@forge-view/*": [
+        "../../forge-view/*"
+      ],
+      "react": [
+        "node_modules/@types/react"
+      ],
+      "react/jsx-runtime": [
+        "node_modules/@types/react/jsx-runtime"
+      ]
+    },
+    "types": [
+      "vite/client",
+      "node"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

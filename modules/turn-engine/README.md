@@ -9,7 +9,7 @@ mais bots e uma simulação para pôr as regras sob pressão. Python 3.11+, só 
 - **Ordens de GM** num canal próprio: `resolve_turn(state, world, rules, orders, gm_orders)` com
   `plague_state` (active/dormant), `plague_focus` (região) e `plague_intensity` (weak/normal/strong).
   Cada decisão do GM vai para os eventos do turno com texto de crónica.
-- **Lê o mapa do módulo world-map** (`web/data/world.json`): vizinhanças, bioma, altitude, costa.
+- **Lê o `world.json` de um mundo do Province-Forge** (convertido por [world-forge](../world-forge/)): vizinhanças, terreno, recurso principal, costa, ligações por mar. Ainda lê os mundos antigos do Azgaar (bioma e altitude).
 
 ## Estrutura
 
@@ -29,14 +29,14 @@ tests/            testes unitários
 ```bash
 cd modules/turn-engine
 python -m unittest discover tests
-python -m sim.run --world ../world-map/web/data/world.json --turns 200 --seeds 5 --out build/sim
+python -m sim.run --world tests/fixtures/world.json --turns 200 --seeds 5 --out build/sim
 # políticas de GM simuladas: never | always | pulse | leader
-python -m sim.run --world ../world-map/web/data/world.json --gm pulse
+python -m sim.run --world tests/fixtures/world.json --gm pulse
 # variantes de regras (qualquer campo de praga/rules.py):
-python -m sim.run --world ../world-map/web/data/world.json --set plague_recede=5
+python -m sim.run --world tests/fixtures/world.json --set plague_recede=5
 ```
 
-O `world.json` gera-se com o módulo [world-map](../world-map/).
+O `world.json` vem de um mundo gerado pelo servidor (`game-server/worlds/<mundo>/world.json`); `tests/fixtures/world.json` é um mundo de 25 reinos para testes e simulações.
 
 ## O que a simulação faz
 

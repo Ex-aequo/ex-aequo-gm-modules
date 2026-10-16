@@ -13,18 +13,26 @@ Formato das ordens (dicts JSON):
 """
 from __future__ import annotations
 
-from .rules import BUILDINGS, FREE, PRAGA, Rules
+from .rules import BUILDINGS, FREE, PRAGA, STONE_FORT_DISCOUNT, Rules
 from .state import GameState, WorldMap
 
 
-def build_cost(state: GameState, rid: int, what: str, rules: Rules) -> tuple[dict | None, str | None]:
+def fort_cost(rid: int, rules: Rules, world: WorldMap | None = None) -> dict:
+    """Custo de um nível de fortificação; numa província com pedra custa metade (decisão de 2026-10-16)."""
+    if world and world.regions[rid].resource == "stone":
+        return {k: round(v * STONE_FORT_DISCOUNT) for k, v in rules.fort_cost.items()}
+    return dict(rules.fort_cost)
+
+
+def build_cost(state: GameState, rid: int, what: str, rules: Rules,
+               world: WorldMap | None = None) -> tuple[dict | None, str | None]:
     r = state.regions[rid]
     if r.project:
         return None, "já há uma obra em curso nesta região"
     if what == "fort":
         if r.fort >= 3:
             return None, "fortificação já está no máximo"
-        return dict(rules.fort_cost), None
+        return fort_cost(rid, rules, world), None
     if what == "upgrade":
         if not r.building:
             return None, "não há edifício para subir de nível"
@@ -137,7 +145,7 @@ def validate(state: GameState, world: WorldMap, rules: Rules, fid: int, orders: 
                 err = f"já há uma ordem {t} nesta região"
             elif t == "build":
                 what = o.get("what")
-                need, err = build_cost(state, rid, what, rules)
+                need, err = build_cost(state, rid, what, rules, world)
                 if not err and what in BUILDINGS and what not in world.regions[rid].allowed_buildings:
                     err = f"{what} não é possível neste terreno"
                 if not err:

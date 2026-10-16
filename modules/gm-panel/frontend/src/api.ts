@@ -23,25 +23,25 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-/**
- * O painel corre em dois sítios:
- *  - sandbox (backend deste módulo, em /): API em /api, ficheiros do mapa em /data
- *  - jogo real (modules/game-server, em /gm/): API do GM em /api/gm, mapa em /api/map, com sessão de GM
- */
-export const GAME_MODE = location.pathname.startsWith("/gm");
-const B = GAME_MODE ? "/api/gm" : "/api";
-export const DATA_URL = GAME_MODE ? "/api/map" : "/data";
+/** O painel do GM corre dentro do servidor do jogo (modules/game-server), em /gm/, com sessão de GM. */
+export const GAME_MODE = true;
+const B = "/api/gm";
+
+export interface WorldInfo { dir: string; name: string; kingdoms: number; provinces: number; created: string; fairness: number | null; issues: string[] }
+export interface WorldJob { state: "running" | "done" | "failed"; name: string; dir: string; stage: string; pct: number; error: string | null }
 
 export const api = {
   state: () => call<GameState>("GET", `${B}/state`),
   region: (id: number) => call<RegionDetail>("GET", `${B}/region/${id}`),
   view: (fid: number) => call<PlayerView>("GET", `${B}/view/${fid}`),
-  addOrder: (o: GMOrder) => call<{ pending: GMOrder[] }>("POST", "/api/gm/orders", o),
-  removeOrder: (i: number) => call<{ pending: GMOrder[] }>("DELETE", `/api/gm/orders/${i}`),
-  resolve: () => call<GameState>("POST", GAME_MODE ? "/api/gm/turn" : "/api/turn"),
-  join: () => call<GameState>("POST", "/api/join"),
+  addOrder: (o: GMOrder) => call<{ pending: GMOrder[] }>("POST", `${B}/orders`, o),
+  removeOrder: (i: number) => call<{ pending: GMOrder[] }>("DELETE", `${B}/orders/${i}`),
+  resolve: () => call<GameState>("POST", `${B}/turn`),
   preview: (turns: number) => call<Preview>("POST", `${B}/preview`, { turns }),
-  reset: (seed: string) => call<GameState>("POST", "/api/reset", { seed }),
-  timer: (minutes: number) => call<GameState>("POST", "/api/gm/timer", { minutes }),
+  timer: (minutes: number) => call<GameState>("POST", `${B}/timer`, { minutes }),
   logout: () => call<{ ok: boolean }>("POST", "/api/logout"),
+  worlds: () => call<{ worlds: WorldInfo[]; job: WorldJob | null; current: string | null }>("GET", `${B}/worlds`),
+  newWorld: (name: string, seed: string, params: Record<string, unknown>) =>
+    call<{ job: WorldJob }>("POST", `${B}/worlds`, { name, seed, params }),
+  newGame: (dir: string) => call<{ ok: boolean; players: { username: string; faction: number | null }[] }>("POST", `${B}/new-game`, { dir }),
 };

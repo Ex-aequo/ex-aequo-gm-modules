@@ -12,10 +12,10 @@ from praga.bots import STYLES, bot_orders
 from praga.state import Agent, Army, GameState
 from praga.vision import KNOWN, OWN, SPIED, VISIBLE, player_view
 
-WORLD = Path(os.environ.get("PRAGA_WORLD", Path(__file__).resolve().parents[2] / "world-map/web/data/world.json"))
+WORLD = Path(os.environ.get("PRAGA_WORLD", Path(__file__).resolve().parent / "fixtures/world.json"))
 
 
-@unittest.skipUnless(WORLD.exists(), f"falta {WORLD} (gerar com o módulo world-map)")
+@unittest.skipUnless(WORLD.exists(), f"falta {WORLD}")
 class VisionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

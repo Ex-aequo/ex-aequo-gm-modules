@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MapMarker, MapPath } from "@map-renderer";
+import type { ClientMap } from "@pf/map/clientMap";
+import { ForgeMap, GameTiles, type Camera, type MapPath, type Marker } from "@forge-view/ForgeMap";
 import { api, ApiError } from "./api";
-import { MapView } from "./MapView";
 import type { KnownRegion, Me, Order, PlayerState } from "./types";
 
 const RES_PT: Record<string, string> = { gold: "ouro", food: "comida", wood: "madeira", iron: "ferro" };
@@ -12,6 +12,15 @@ const BUILDING_PT: Record<string, string> = {
 const SIZE_PT = ["pequena", "média", "grande", "enorme"];
 const PLAGUE_PT = ["limpa", "contaminada", "infestada", "perdida para a Praga"];
 const LEVEL_PT = ["", "conhecida (fotografia antiga)", "visível", "espiada", "tua"];
+const TERRAIN_PT: Record<string, string> = {
+  plains: "planície", forest: "floresta", hills: "colinas", mountains: "montanhas", desert: "deserto",
+  marsh: "pântano", jungle: "selva", tundra: "tundra",
+};
+const RESOURCE_PT: Record<string, string> = {
+  grain: "cereal", wood: "madeira", stone: "pedra (fortificações a metade do preço)", iron: "ferro",
+  horses: "cavalos (ainda sem efeito)", salt: "sal (ainda sem efeito)", gold: "ouro (permite mina de ouro)",
+  spices: "especiarias (ainda sem efeito)",
+};
 const POSTURE_PT: Record<string, string> = { ally: "Aliado", neutral: "Neutro", hostile: "Hostil" };
 const cost = (c: Record<string, number>) => Object.entries(c).map(([k, v]) => `${Math.round(v)} ${RES_PT[k] ?? k}`).join(" · ");
 
@@ -73,13 +82,13 @@ type Sel = { kind: "region" | "army" | "agent"; id: number } | null;
 function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [st, setSt] = useState<PlayerState | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [cmap, setCmap] = useState<ClientMap | null>(null);
   const [sel, setSel] = useState<Sel>(null);
   const [mode, setMode] = useState<Mode>(null);
   const [hover, setHover] = useState(0);
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [now, setNow] = useState(Date.now());
-  const camera = useRef<{ x: number; y: number; zoom: number } | null>(null);
+  const camera = useRef<Camera | null>(null);
   const turnRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -90,6 +99,10 @@ function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
         turnRef.current = s.clock.turn;
         setSel(null);
         setMode(null);
+        // o mapa (só o que o reino conhece) muda com o turno
+        const r = await fetch("/api/map/client-map.json", { credentials: "same-origin" });
+        if (!r.ok) throw new ApiError(r.status, "o mapa não carregou");
+        setCmap(await r.json());
       }
       setSt(s);
       setOrders(s.orders);
@@ -113,7 +126,10 @@ function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
     const f = st?.factions.find((x) => x.id === id) ?? st?.map_factions.find((x) => x.id === id);
     return f ? f.name : `reino ${id}`;
   }, [st, me_id]);
-  const regionName = useCallback((id: number) => names.get(id) ?? "Terra desconhecida", [names]);
+  /** Nome de uma província do Praga (rid); no Province-Forge é a região rid - 1. */
+  const regionName = useCallback((id: number) => cmap?.regions[id - 1]?.name?.pt ?? "Terra desconhecida", [cmap]);
+  const tiles = useMemo(() => (cmap?.tiles ? new GameTiles(`/api/map/t${st?.clock.turn ?? 0}/tiles`, cmap.tiles) : null),
+    [cmap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = useCallback(async (next: Order[], added?: Order) => {
     try {
@@ -145,6 +161,9 @@ function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
   };
   const removeOrder = (i: number) => submit(orders.filter((_, j) => j !== i));
 
+  const onSelect = (pf: number | null) => {
+    onClick(pf !== null && cmap?.regions[pf]?.kind === "land" ? pf + 1 : 0);
+  };
   const onClick = (id: number) => {
     if (!st) return;
     if (mode?.type === "attack") {
@@ -167,9 +186,9 @@ function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
     setSel(army && !(sel?.kind === "army" && sel.id === army.id) ? { kind: "army", id: army.id } : { kind: "region", id });
   };
 
-  const markers = useMemo<MapMarker[]>(() => {
+  const markers = useMemo<Marker[]>(() => {
     if (!st) return [];
-    const list: MapMarker[] = [];
+    const list: Marker[] = [];
     for (const a of st.armies) list.push({ region: a.region, kind: "army", label: String(a.men), selected: sel?.kind === "army" && sel.id === a.id });
     for (const [rid, r] of Object.entries(st.regions)) {
       if (r.level < 2) continue;
@@ -201,7 +220,11 @@ function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
     return out;
   }, [st, orders, mode]);
 
-  if (!st) return <div className="boot">{msg?.text ?? "A carregar o reino…"}</div>;
+  // o mapa trabalha com ids do Province-Forge (pf = rid - 1)
+  const markersPf = useMemo(() => markers.map((m) => ({ ...m, region: m.region - 1 })), [markers]);
+  const pathsPf = useMemo(() => paths.map((p) => ({ ...p, regions: p.regions.map((r) => r - 1) })), [paths]);
+
+  if (!st || !cmap) return <div className="boot">{msg?.text ?? "A carregar o reino…"}</div>;
 
   const used = orders.reduce((s, o) => s + (st.order_cost[o.type] ?? 0), 0);
   const total = st.faction.command_points;
@@ -211,9 +234,11 @@ function Game({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div className="app">
-      <MapView key={st.clock.turn} owner={st.owner} plague={st.plague} fog={st.fog} factions={st.map_factions}
-        markers={markers} paths={paths} selected={sel?.kind === "region" ? sel.id : 0} home={home} camera={camera}
-        onClick={onClick} onHover={setHover} onReady={setNames} />
+      <div className="map">
+        <ForgeMap map={cmap} tiles={tiles} view={st.viewer} markers={markersPf} paths={pathsPf}
+          selected={sel?.kind === "region" ? sel.id - 1 : null} home={home - 1} camera={camera}
+          onSelect={onSelect} onHover={(pf) => setHover(pf !== null && cmap.regions[pf]?.kind === "land" ? pf + 1 : 0)} />
+      </div>
       <div className="map-hud">
         {mode && (
           <div className="banner">
@@ -380,12 +405,15 @@ function Selection({ st, sel, regionName, factionName, orders, onMode, onOrder, 
   const armies = r.x ? r.x.armies.map(([o, m]) => `${m} (${factionName(o)})`) : (r.a ?? []).filter(([o]) => o !== st.faction.id)
     .map(([o, b]) => `força ${SIZE_PT[b]} (${factionName(o)})`);
   const has = (t: string) => orders.some((o) => o.type === t && "region" in o && o.region === id);
+  const info = st.region_info[String(id)];
   return (
     <section className="card">
       <h2>{regionName(id)}</h2>
       <p className="muted small">{LEVEL_PT[r.level]}{r.level === 1 ? `, vista no turno ${r.t}` : ""}</p>
       <dl>
         <dt>Senhor</dt><dd>{factionName(r.o)}</dd>
+        {info && <><dt>Terreno</dt><dd>{TERRAIN_PT[info.terrain] ?? info.terrain}{info.rough ? " (custa 2 passos)" : ""}</dd></>}
+        {info?.resource && <><dt>Recurso</dt><dd>{RESOURCE_PT[info.resource] ?? info.resource}{info.amount > 1 ? ` ×${info.amount}` : ""}</dd></>}
         <dt>Praga</dt><dd>{r.plague !== undefined ? `${r.plague}%` : PLAGUE_PT[r.p ?? 0]}</dd>
         {mine && <><dt>População</dt><dd>{Math.round(r.pop ?? 0)} mil · ordem {r.order}/3</dd></>}
         <dt>Fortificação</dt><dd>{r.fort ?? r.f ?? 0}/3</dd>
@@ -404,7 +432,7 @@ function OwnRegionActions({ st, id, r, has, onOrder }: {
   const allowed = st.allowed_buildings[String(id)] ?? [];
   const builds: { what: string; c: Record<string, number> }[] = [];
   if (!r.project) {
-    if ((r.fort ?? 0) < 3) builds.push({ what: "fort", c: st.costs.fort });
+    if ((r.fort ?? 0) < 3) builds.push({ what: "fort", c: st.costs.fort_by_region[String(id)] ?? st.costs.fort });
     if (r.building) { if ((r.lvl ?? 0) < 3) builds.push({ what: "upgrade", c: st.costs.building[String((r.lvl ?? 0) + 1)] }); }
     else for (const b of allowed) builds.push({ what: b, c: st.costs.building["1"] });
   }

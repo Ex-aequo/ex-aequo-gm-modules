@@ -132,3 +132,32 @@ Formato: data — decisão — porquê — o que fica em aberto.
 - **Arranque:** `modules/game-server/scripts/praga.sh setup` e `start`.
 - **Em aberto:** registo de contas e entrada de jogadores novos a meio (hoje é por script); HTTPS e alojamento;
   notificações de fim de turno.
+
+## 2026-10-16 — O Province-Forge passa a ser o gerador e o mapa do Praga
+
+- **Decisão (Pedro):** o mapa do Praga é gerado pelo [Province-Forge](https://github.com/Ex-aequo/Province-Forge)
+  (submódulo em `vendor/province-forge`, versão fixa) e desenhado com o estilo dele. Mantêm-se os 25–150 reinos com
+  reinos-guardiões. Saem o Azgaar, a partição em Python, a base no Blender e o renderizador WebGL (`world-map`,
+  `map-renderer`) e o modo sandbox do painel do GM — ficam no histórico do git.
+- **Porquê:** pré-visualização em segundos no browser (dá para experimentar sementes), sem depender do Azgaar através
+  de um browser automático, e com posições iniciais equilibradas, recursos, zonas de mar e nomes.
+- **Escala medida** (`tools/dev/scale-check.ts`, 30 % de território inicial): 25 reinos 667 províncias 5 s; 50 → 1 000
+  7 s; 100 → 1 667 12 s; 150 → 2 500 19 s. Mapa cliente 0,4–1,3 MB com gzip. Aos 150 reinos as posições ficam até
+  ~11 % desiguais em valor (alvo 5 %): aceite, não há metas de equilíbrio. Os tiles do relevo demoram ~11 min com 2
+  núcleos (o mesmo número de tiles em qualquer tamanho; num mundo grande cada província tem menos detalhe).
+- **Mudanças no Province-Forge:** tamanho automático (`autoScale`: o mundo cresce com reinos × províncias por reino ÷
+  território inicial), 6–150 posições, nome e cor sugeridos por posição, véu para regiões vistas há tempo
+  (`ViewerState.stale`), zoom máximo pelo tamanho das províncias, correção do `process.env` que impedia gerar no browser.
+- **Recursos (Pedro):** cereal/madeira/ferro/ouro dão bónus na produção correspondente; pedra torna as fortificações
+  mais baratas (metade); cavalos, sal e especiarias ficam no mapa sem efeito, por agora.
+- **Nevoeiro (Pedro: tiles pintados no servidor):** o jogador recebe só a geometria das províncias que conhece (filtro
+  do Province-Forge) e os tiles com cinzento fora disso, calculados por tile, guardados em memória por jogador e turno.
+  Corrige também uma fuga do servidor anterior: um tile de zoom afastado que tocasse uma região conhecida ia inteiro.
+- **Consequências no motor:** produção pelo terreno + recurso; ligações por mar pelas zonas de mar costeiras;
+  distâncias com a volta do mundo e medidas em províncias (as regras de rumores e focos não mudam de valor). Com as
+  capitais espalhadas por igual, raramente há terra a 200 unidades de todas: os focos sugeridos ficam na terra mais
+  afastada que existe.
+- **Novo mundo no painel do GM:** controlos, pré-visualização, "Criar" (o servidor gera o mundo final, com progresso) e
+  "Começar um jogo neste mundo" (apaga o jogo atual; as contas recebem reinos do mundo novo).
+- **Em aberto:** registo de contas; cavalos, sal e especiarias; movimento por mar (as zonas de mar existem no mapa);
+  nível de zoom extra nos mundos muito grandes (mais tiles, mais tempo).

@@ -18,3 +18,4 @@ fmg/
 # sistema
 .DS_Store
 Thumbs.db
+modules/game-server/worlds/

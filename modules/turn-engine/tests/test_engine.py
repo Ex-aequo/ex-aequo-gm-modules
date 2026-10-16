@@ -1,18 +1,19 @@
 """Testes do motor. Correr a partir de modules/turn-engine:
-    PRAGA_WORLD=../world-map/web/data/world.json python -m unittest discover tests
+    python -m unittest discover -s tests      (mundo de teste: tests/fixtures/world.json, Province-Forge, 25 reinos)
 """
 import math
 import os
 import unittest
 from pathlib import Path
 
+from praga.state import land_distances
 from praga import DEFAULT, FREE, PRAGA, WorldMap, add_faction, new_game, resolve_turn, validate
 from praga.bots import STYLES, bot_orders
 
-WORLD = Path(os.environ.get("PRAGA_WORLD", Path(__file__).resolve().parents[2] / "world-map/web/data/world.json"))
+WORLD = Path(os.environ.get("PRAGA_WORLD", Path(__file__).resolve().parent / "fixtures/world.json"))
 
 
-@unittest.skipUnless(WORLD.exists(), f"falta {WORLD} (gerar com o módulo world-map)")
+@unittest.skipUnless(WORLD.exists(), f"falta {WORLD}")
 class EngineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -153,9 +154,13 @@ class EngineTests(unittest.TestCase):
         s = self.fresh()
         self.assertEqual(len(s.foci), DEFAULT.plague_foci)
         caps = [self.world.regions[s.armies_of(f)[0].region].center for f in s.factions]
+        reach = land_distances(self.world, [s.armies_of(f)[0].region for f in s.factions])
+        dcap = {r: min(self.world.dist(self.world.regions[r].center, c) for c in caps) for r in reach}
+        # num mundo com as capitais espalhadas por igual (Province-Forge) pode não haver terra a foci_min_dist de
+        # todas: aí os focos ficam na terra mais afastada (sempre acima da mediana)
+        floor = min(DEFAULT.foci_min_dist, sorted(dcap.values())[len(dcap) // 2])
         for rid in s.foci:
-            d = min(math.dist(self.world.regions[rid].center, c) for c in caps)
-            self.assertGreaterEqual(d, DEFAULT.foci_min_dist)
+            self.assertGreaterEqual(dcap[rid], floor)
 
     def test_every_faction_starts_with_iron(self):
         s = self.fresh()
@@ -238,7 +243,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-@unittest.skipUnless(WORLD.exists(), f"falta {WORLD} (gerar com o módulo world-map)")
+@unittest.skipUnless(WORLD.exists(), f"falta {WORLD}")
 class WorldStartTests(unittest.TestCase):
     """Início 'world': reinos com território e capital vindos do world.json (mundos com reinos próprios)."""
 

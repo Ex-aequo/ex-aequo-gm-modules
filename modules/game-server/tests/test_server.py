@@ -3,24 +3,48 @@
 Correr a partir de modules/game-server:
     createdb praga_test
     PRAGA_TEST_DB=postgresql+psycopg://localhost/praga_test python -m unittest tests.test_server
-Precisa de um mundo gerado (por defeito ../world-map/build/exemplo/data; ou PRAGA_TEST_WORLD).
+Gera um mundo pequeno com o Province-Forge (precisa de Node e do CLI compilado em vendor/province-forge:
+npm ci && npm run build:cli), ou usa PRAGA_TEST_WORLD (pasta de um mundo já gerado).
 Sem PRAGA_TEST_DB ou sem mundo, os testes são saltados.
 """
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-WORLD = Path(os.environ.get("PRAGA_TEST_WORLD", HERE.parent / "world-map/build/exemplo/data"))
+CLI = HERE.parents[1] / "vendor/province-forge/build/cli/mapgen.js"
 TEST_DB = os.environ.get("PRAGA_TEST_DB")
 if TEST_DB:
     os.environ["PRAGA_DB"] = TEST_DB
 sys.path.insert(0, str(HERE))
 
-SKIP = None if TEST_DB and (WORLD / "world.json").exists() else "falta PRAGA_TEST_DB ou o mundo de teste"
+
+def _world() -> Path | None:
+    if os.environ.get("PRAGA_TEST_WORLD"):
+        return Path(os.environ["PRAGA_TEST_WORLD"])
+    if not TEST_DB or not CLI.exists() or not shutil.which("node"):
+        return None
+    out = Path(tempfile.mkdtemp(prefix="praga-test-world-")) / "w"
+    params = out.parent / "p.json"
+    params.write_text(json.dumps({"autoScale": True, "playerSlots": 10, "reserveSlots": 0, "startProvinces": 5,
+                                  "startShare": 0.3, "valueTolerance": 0.2}))
+    subprocess.run(["node", str(CLI), "create", "--seed", "teste", "--out", str(out), "--params", str(params),
+                    "--max-level", "1"], check=True, capture_output=True)
+    sys.path.insert(0, str(HERE.parent / "world-forge"))
+    from forge.convert import praga_world
+    (out / "world.json").write_text(json.dumps(praga_world(json.loads((out / "static-map.json").read_text()), "Teste")))
+    return out
+
+
+WORLD = _world()
+SKIP = None if TEST_DB and WORLD and (WORLD / "world.json").exists() else "falta PRAGA_TEST_DB, Node ou o mundo de teste"
 
 
 @unittest.skipIf(SKIP, SKIP or "")
@@ -72,30 +96,36 @@ class ServerTests(unittest.TestCase):
         p = self.client("j1", "segredo")
         st = p.get("/api/player/state").json()
         known = {int(k) for k in st["regions"]}
-        w = p.get("/api/map/world.json").json()
-        named = {r["id"] for r in w["regions"] if r["name"]}
-        self.assertEqual(named, known)                               # nem o nome das desconhecidas
-        self.assertTrue(all(b["region"] in known for b in w["burgs"]))
-        ids = {f["id"] for f in w["factions"]}
-        self.assertNotIn(self.fids[1], ids - {f["id"] for f in st["map_factions"]})
-        gm = self.client("gm", "segredo-gm").get("/api/map/world.json").json()
-        self.assertGreater(len(gm["regions"]), len(known))
-        self.assertTrue(all(r["name"] for r in gm["regions"]))
+        cm = p.get("/api/map/client-map.json").json()
+        self.assertTrue(cm["partial"])
+        land = {r["id"] + 1 for r in cm["regions"] if r and r["kind"] == "land"}
+        self.assertEqual(land, known)                       # só a geometria (e o nome) das províncias que conhece
+        self.assertTrue({r - 1 for r in known} <= set(st["viewer"]["visible"]))     # vista em ids do Province-Forge
+        gm = self.client("gm", "segredo-gm").get("/api/map/client-map.json").json()
+        self.assertFalse(gm.get("partial"))
+        self.assertGreater(sum(1 for r in gm["regions"] if r and r["kind"] == "land"), len(known))
 
-    def test_hidden_tiles_are_refused(self):
-        from server.mapdata import get_mapdata
+    def test_tiles_are_masked(self):
+        from server.forgemap import get_forgemap
         g = self.app_mod.GAME
-        md = get_mapdata(str(g.world_dir))
-        if not md.tiles:
-            self.skipTest("mundo sem tiles")
-        known = g.known_regions(self.fids[0])
-        hidden = next((z, k) for (z, k), regs in md.tile_regions.items() if regs and not regs & known)
-        shown = next((z, k) for (z, k), regs in md.tile_regions.items() if regs & known)
+        fm = get_forgemap(str(g.world_dir))
+        vis = fm.visible_pf(g.known_regions(self.fids[0]))
         p = self.client("j1", "segredo")
-        self.assertEqual(p.get(f"/api/map/tiles/{hidden[0]}/{hidden[1]}.webp").status_code, 404)
-        self.assertEqual(p.get(f"/api/map/tiles/{shown[0]}/{shown[1]}.webp").status_code, 200)
-        self.assertEqual(self.client("gm", "segredo-gm").get(f"/api/map/tiles/{hidden[0]}/{hidden[1]}.webp").status_code, 200)
-        self.assertEqual(p.get("/api/map/tiles/0/..%2Fworld.json").status_code, 404)
+        gm = self.client("gm", "segredo-gm")
+        hidden = shown = None
+        for tx in range(4):
+            for ty in range(2):
+                regs = fm.tile_regions(1, tx, ty)
+                if regs and not regs & vis and hidden is None:
+                    hidden = (tx, ty)
+                if regs & vis and shown is None:
+                    shown = (tx, ty)
+        self.assertIsNotNone(hidden)
+        grey = fm.grey_tile()
+        self.assertEqual(p.get(f"/api/map/t1/tiles/1/{hidden[0]}/{hidden[1]}.webp").content, grey)
+        self.assertNotEqual(gm.get(f"/api/map/gm/tiles/1/{hidden[0]}/{hidden[1]}.webp").content, grey)
+        self.assertEqual(p.get(f"/api/map/t1/tiles/1/{shown[0]}/{shown[1]}.webp").status_code, 200)
+        self.assertEqual(p.get("/api/map/t1/tiles/9/0/0.webp").status_code, 404)
 
     # ------------------------------------------------------------------ ordens e turno
     def test_orders_validated_stored_and_resolved(self):

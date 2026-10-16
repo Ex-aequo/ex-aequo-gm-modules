@@ -1,4 +1,5 @@
-"""Estado do jogo: mapa estático (do world.json do módulo world-map) + estado dinâmico serializável."""
+"""Estado do jogo: mapa estático (world.json de um mundo do Province-Forge, ver modules/world-forge) + estado dinâmico
+serializável."""
 from __future__ import annotations
 
 import hashlib
@@ -7,8 +8,11 @@ import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .rules import (BIOME_YIELD, DESERTS, FREE, HILL_ELEVATION, MOUNTAIN_ELEVATION, PRAGA, RESOURCES, ROUGH_BIOMES,
-                    FOREST_BIOMES, Rules)
+from .rules import (BIOME_YIELD, DESERTS, FOREST_TERRAINS, FREE, HILL_ELEVATION, MOUNTAIN_ELEVATION, PRAGA,
+                    RESOURCE_BONUS, RESOURCES, ROUGH_BIOMES, ROUGH_TERRAINS, FOREST_BIOMES, TERRAIN_YIELD, Rules)
+
+
+REF_PROVINCE_SIDE = 32.24      # √(área média) das províncias do mundo de referência (Azgaar, 790 regiões)
 
 
 def stable_hash(*parts) -> float:
@@ -33,12 +37,21 @@ class RegionInfo:
     rough: bool           # custa 2 passos a entrar
     gold_vein: bool
     allowed_buildings: tuple[str, ...]
+    terrain: str | None = None      # mundos do Province-Forge
+    resource: str | None = None
+    amount: int = 0
 
 
 class WorldMap:
     def __init__(self, world: dict, rules: Rules):
         self.name = world["name"]
         self.seed = world["seed"]
+        # o mundo do Province-Forge dá a volta de leste a oeste: as distâncias também
+        self.wrap_width = float(world["width"]) if world.get("wrapX") else 0.0
+        # as distâncias das regras (rumores, focos) estão em unidades do mundo de referência (Azgaar, província
+        # média de ~32 unidades de lado); noutros mundos medem-se em "províncias", não em unidades
+        areas = [r["area"] for r in world["regions"] if r.get("area")]
+        self.scale = (math.sqrt(sum(areas) / len(areas)) / REF_PROVINCE_SIDE) if areas and world.get("format") == "praga-world/province-forge" else 1.0
         self.factions = {f["id"]: f for f in world["factions"]}
         raw = {r["id"]: r for r in world["regions"]}
         self.start_owner = {rid: r["owner"] for rid, r in raw.items()}
@@ -55,10 +68,13 @@ class WorldMap:
                 if owner and not self.has_kingdoms:
                     self.capitals.setdefault(owner, b["region"])
 
-        # ligações por mar: regiões costeiras próximas que não são vizinhas por terra
+        # ligações por mar: o Province-Forge dá-as (mesma zona de mar costeira); nos mundos antigos, costeiras
+        # próximas que não são vizinhas por terra
         coastal = [r for r in raw.values() if r["coastal"]]
-        sea = {r["id"]: [] for r in coastal}
-        for i, a in enumerate(coastal):
+        sea = {r["id"]: list(r["sea_links"]) for r in raw.values() if "sea_links" in r}
+        if not sea:
+            sea = {r["id"]: [] for r in coastal}
+        for i, a in enumerate([] if any("sea_links" in r for r in raw.values()) else coastal):
             for b in coastal[i + 1:]:
                 if b["id"] in a["neighbors"]:
                     continue
@@ -69,6 +85,9 @@ class WorldMap:
 
         self.regions: dict[int, RegionInfo] = {}
         for rid, r in raw.items():
+            if r.get("terrain"):
+                self.regions[rid] = self._forge_region(rid, r, sea, rules)
+                continue
             food, wood = BIOME_YIELD.get(r["biome"], (1, 0))
             if r["coastal"]:
                 food += 1
@@ -92,6 +111,48 @@ class WorldMap:
                 center=tuple(r["center"]), base={"food": food, "wood": wood, "iron": iron, "gold": 3 if vein else 0},
                 rough=r["biome"] in ROUGH_BIOMES or elev >= MOUNTAIN_ELEVATION, gold_vein=vein,
                 allowed_buildings=tuple(allowed))
+
+    def _forge_region(self, rid: int, r: dict, sea: dict, rules: Rules) -> RegionInfo:
+        """Província do Province-Forge: produção pelo terreno + o recurso principal (decisão de 2026-10-16)."""
+        food, wood, iron = TERRAIN_YIELD.get(r["terrain"], (1, 0, 0))
+        if r["coastal"]:
+            food += 1
+        if r.get("river"):
+            food += 1
+        base = {"food": food, "wood": wood, "iron": iron, "gold": 0}
+        res, amount = r.get("resource"), int(r.get("amount") or 0)
+        if res in RESOURCE_BONUS:
+            base[RESOURCE_BONUS[res]] += amount if res != "gold" else 2 + amount
+        vein = res == "gold"
+        allowed = []
+        if base["food"] >= 2:
+            allowed.append("farm")
+        if r["terrain"] in FOREST_TERRAINS or res == "wood":
+            allowed.append("sawmill")
+        if base["iron"] > 0:
+            allowed.append("iron_mine")
+        if vein:
+            allowed.append("gold_mine")
+        return RegionInfo(
+            id=rid, name=r["name"], kind=r["kind"], biome=r["terrain"], elevation=0, coastal=r["coastal"],
+            neighbors=tuple(sorted(r["neighbors"])), sea_links=tuple(sorted(sea.get(rid, []))),
+            center=tuple(r["center"]), base=base, rough=r["terrain"] in ROUGH_TERRAINS, gold_vein=vein,
+            allowed_buildings=tuple(allowed), terrain=r["terrain"], resource=res, amount=amount)
+
+    def dist(self, a, b) -> float:
+        """Distância entre dois pontos (x, y), com a volta leste–oeste quando o mundo a tem, em unidades do mundo de
+        referência (as das regras): num mundo com províncias maiores, a mesma distância em províncias."""
+        dx = abs(a[0] - b[0])
+        if self.wrap_width:
+            dx = min(dx, self.wrap_width - dx)
+        return math.hypot(dx, a[1] - b[1]) / self.scale
+
+    def delta(self, a, b) -> tuple[float, float]:
+        """Vetor de a para b pelo caminho mais curto (com a volta)."""
+        dx = b[0] - a[0]
+        if self.wrap_width:
+            dx = (dx + self.wrap_width / 2) % self.wrap_width - self.wrap_width / 2
+        return dx, b[1] - a[1]
 
     @classmethod
     def load(cls, path: str | Path, rules: Rules) -> "WorldMap":
@@ -240,14 +301,18 @@ def place_foci(world: WorldMap, capitals: list[int], rules: Rules) -> list[int]:
         return []
     reach = land_distances(world, capitals)
     cap_xy = [world.regions[c].center for c in capitals]
-    dcap = {r: min(math.dist(world.regions[r].center, c) for c in cap_xy) for r in reach}
+    dcap = {r: min(world.dist(world.regions[r].center, c) for c in cap_xy) for r in reach}
     band = [r for r in sorted(reach) if rules.foci_min_dist <= dcap[r] <= rules.foci_max_dist]
     if len(band) < rules.plague_foci:                       # mapa pequeno ou muito cheio: alarga para fora
-        band = [r for r in sorted(reach) if dcap[r] >= rules.foci_min_dist] or sorted(reach, key=lambda r: -dcap[r])
+        band = [r for r in sorted(reach) if dcap[r] >= rules.foci_min_dist]
+    if len(band) < rules.plague_foci:
+        # capitais espalhadas por igual (Province-Forge): não há terra tão longe; usa a mais afastada de todas
+        ranked = sorted(reach, key=lambda r: (-dcap[r], r))
+        band = sorted(ranked[:max(rules.plague_foci * 4, len(ranked) // 10)])
     chosen: list[int] = []
     while len(chosen) < rules.plague_foci and len(chosen) < len(band):
         def score(r):
-            apart = min((math.dist(world.regions[r].center, world.regions[c].center) for c in chosen), default=1e9)
+            apart = min((world.dist(world.regions[r].center, world.regions[c].center) for c in chosen), default=1e9)
             return (apart, dcap[r], -r)
         chosen.append(max((r for r in band if r not in chosen), key=score))
     return chosen

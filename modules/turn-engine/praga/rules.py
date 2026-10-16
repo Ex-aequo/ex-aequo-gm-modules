@@ -126,3 +126,16 @@ MOUNTAIN_ELEVATION = 45
 HILL_ELEVATION = 35
 
 BUILDINGS = {"farm": "food", "sawmill": "wood", "iron_mine": "iron", "gold_mine": "gold"}
+
+# Mundos do Province-Forge (decisão de 2026-10-16): terreno de jogo em vez de bioma do Azgaar.
+# (comida, madeira, ferro) base por terreno
+TERRAIN_YIELD = {
+    "plains": (6, 0, 0), "forest": (3, 4, 0), "hills": (3, 1, 2), "mountains": (1, 1, 4),
+    "desert": (0, 0, 2), "marsh": (3, 2, 0), "jungle": (2, 5, 0), "tundra": (1, 1, 0),
+}
+ROUGH_TERRAINS = {"forest", "jungle", "marsh", "mountains"}
+FOREST_TERRAINS = {"forest", "jungle"}
+# recurso principal da província (quantidade 1–3): bónus na produção correspondente.
+# pedra: fortificações mais baratas. cavalos, sal e especiarias: no mapa, ainda sem efeito.
+RESOURCE_BONUS = {"grain": "food", "wood": "wood", "iron": "iron", "gold": "gold"}
+STONE_FORT_DISCOUNT = 0.5

@@ -305,7 +305,7 @@ def resolve_turn(state: GameState, world: WorldMap, rules: Rules, orders: dict[i
                 rid = o["region"]
                 if s.regions[rid].owner != fid:
                     continue
-                need, err = build_cost(s, rid, o["what"], rules)
+                need, err = build_cost(s, rid, o["what"], rules, world)
                 if err or any(f.stock[k] < v for k, v in need.items()):
                     continue
                 for k, v in need.items():

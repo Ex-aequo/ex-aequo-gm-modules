@@ -1,3 +1,5 @@
+import type { ViewerState } from "@pf/game/state";
+
 export type Intensity = "weak" | "normal" | "strong";
 
 export type GMOrder =
@@ -41,6 +43,8 @@ export interface Snapshot {
   turn: number;
   owner: number[];
   plague: number[];
+  /** faixa da Praga por província: 0 limpa, 1 contaminada, 2 infestada, 3 perdida */
+  bands: number[];
   plague_active: boolean;
   plague_intensity: Intensity;
   suggested_foci: number[];
@@ -126,17 +130,7 @@ export interface PlayerView {
   agents: { id: number; kind: "scout" | "spy"; region: number }[];
   factions: { id: number; name: string; bot: boolean }[];
   inbox: InboxEntry[];
-  owner: number[];
-  plague: number[];
-  fog: number[];
+  viewer: ViewerState;
   map_factions: { id: number; name: string; color: string }[];
   known_share: number;
-}
-
-/** O que o mapa desenha: estado completo (GM) ou a vista de um jogador (com nevoeiro). */
-export interface MapData {
-  owner: number[];
-  plague: number[];
-  fog: number[] | null;
-  factions: { id: number; name: string; color: string }[];
 }

@@ -1,0 +1,3 @@
+[submodule "vendor/province-forge"]
+	path = vendor/province-forge
+	url = https://github.com/Ex-aequo/Province-Forge.git

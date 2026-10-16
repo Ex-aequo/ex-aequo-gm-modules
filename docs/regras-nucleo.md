@@ -17,7 +17,8 @@ Todos os números são **valores iniciais**, a calibrar na simulação com bots 
 - ✅ Mundo persistente, **sem limite de turnos**.
 - ✅ Guerra, política e construção presentes.
 - ✅ A **Praga**: uma infestação persistente e global (não uma doença).
-- ✅ Mapa: ~627 regiões jogáveis (províncias do Azgaar), com bioma, altitude, costa e rios.
+- ✅ Mapa: gerado pelo Province-Forge (2026-10-16): províncias de terra com terreno, recurso principal, costa e rios;
+  25–150 reinos com províncias iguais; o mundo dá a volta de leste a oeste.
 
 ## 1. Princípios de design 🟡
 
@@ -43,7 +44,7 @@ As ordens são validadas **na submissão**, não na resolução: o jogador vê l
 ## 3. Entidades 🟡
 
 **Região** — dono, população, ordem pública (0–3), fortificação (0–3), um edifício de produção (nível 0–3), Praga (0–100).
-O terreno vem do mapa: bioma (produção, movimento), altitude (defesa), costa (travessias), rios (fronteira defensiva).
+O terreno vem do mapa: terreno de jogo (produção, movimento), recurso principal, costa (travessias), rios (fronteira defensiva).
 
 **Fação** — reservas dos quatro recursos, posturas diplomáticas, pontos de comando.
 
@@ -58,11 +59,15 @@ gastam ao construir, recrutar e manter exércitos. O custo extra fica na leitura
 | Recurso | De onde vem | Para que serve |
 |---|---|---|
 | **Ouro** | impostos sobre a população (todas as regiões); minas de ouro | manutenção de edifícios e exércitos, recrutamento |
-| **Comida** | pradaria, savana, floresta sazonal, costa | alimentar exércitos (1 por 100 homens/turno); crescimento da população |
-| **Madeira** | florestas, taiga, pântano | construir e subir edifícios, fortificações de madeira |
-| **Ferro** | montanhas (altitude alta), desertos | recrutar e equipar homens (obrigatório), fortificações de pedra |
+| **Comida** | planície, colinas, floresta, pântano, costa, rios; recurso cereal | alimentar exércitos (1 por 100 homens/turno); crescimento da população |
+| **Madeira** | floresta, selva, pântano; recurso madeira | construir e subir edifícios, fortificações de madeira |
+| **Ferro** | montanhas, colinas, desertos; recurso ferro | recrutar e equipar homens (obrigatório), fortificações de pedra |
 
-🟡 A produção base de cada região sai do bioma e da altitude que já estão no mapa. Uma fação sem montanhas não tem
+✅ **Recurso principal (2026-10-16):** cada província do Province-Forge tem um recurso (quantidade 1–3). Cereal,
+madeira e ferro somam a quantidade à produção correspondente; ouro dá 2 + quantidade e permite a mina de ouro.
+**Pedra:** fortificações a metade do preço. **Cavalos, sal e especiarias:** aparecem no mapa, ainda sem efeito.
+
+🟡 A produção base de cada região sai do terreno e do recurso que já estão no mapa. Uma fação sem montanhas não tem
 ferro próprio: comercia ou conquista. É aqui que a geografia passa a dar razões para guerra e diplomacia.
 
 ✅ **Ferro garantido no arranque (v0.3):** as duas regiões iniciais além da capital escolhem-se de forma a incluir ferro.

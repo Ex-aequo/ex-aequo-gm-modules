@@ -1,69 +1,23 @@
 # gm-panel
 
-Painel do mestre de jogo para o Praga, em modo **sandbox**: um mundo local onde as 24 fações são bots
-(módulo [turn-engine](../turn-engine/)) e tu és o GM. Serve para testar se o painel dá a informação certa para decidir
-e se conduzir a Praga é interessante, antes de existir o servidor multijogador.
+Painel do mestre de jogo do Praga. É servido pelo [game-server](../game-server/) em `/gm/` (entrar com a conta do GM).
 
-A API foi desenhada para passar a ser a do servidor real: a lógica está em `backend/sandbox.py`, não nas rotas.
-
-## O que faz
-
-- **Mapa** com o estado real do motor (módulo partilhado [map-renderer](../map-renderer/)): donos, fronteiras, Praga,
-  focos sugeridos (círculo tracejado) e focos pendentes.
-- **Estado do mundo:** % perdido e contaminado, maior fação, gráfico por turno com as faixas em que a Praga esteve ativa.
-- **Controlos da Praga:** despertar/adormecer, intensidade (fraca ×0,5, normal, forte ×1,5), abrir foco clicando no mapa
-  ou num foco sugerido, com confirmação (é irreversível e aparece na crónica pública).
-- **Ordens para o próximo turno:** fila revista e cancelável antes de resolver. Uma nova decisão de estado ou intensidade
-  substitui a anterior. Abrir um foco com a Praga adormecida acrescenta "Despertar" automaticamente.
-- **Pré-visualização:** simula 5–30 turnos numa cópia do mundo, com as ordens pendentes, e mostra o resultado no mapa.
-  Com bots é exata (o mesmo que vai acontecer ao resolver); com jogadores reais será uma estimativa.
-- **Região:** clicar numa região mostra dono, Praga, população, ordem pública, fortificação, edifício, exércitos e agentes.
-- **Ver como jogador:** escolhe uma fação e o mapa passa a mostrar só o que ela sabe (nevoeiro, regras §8): pergaminho
-  onde nunca esteve, tons lavados onde só tem uma fotografia antiga. O cartão mostra o mapa conhecido, os agentes, a
-  caixa de mensagens (rumores e relatórios) e o que a fação sabe da região clicada. Os dados vêm do mesmo
-  `player_view` que o servidor real vai enviar a cada jogador.
-- **Rumores:** o GM escreve um rumor (verdadeiro ou falso) para uma fação ou para todas as fações perto de uma região;
-  chega no próximo turno como mensagem, igual aos rumores automáticos.
-- **Fações** (regiões, crescimento nos últimos 10 turnos, homens; jogador ou reino-guardião) e **crónica** pública.
-  Num mundo novo, 60 % dos reinos têm "jogador" (bots com estilo, a simular pessoas) e 40 % são guardiões.
-- **Simular entrada de um jogador:** o jogador novo recebe o reino-guardião mais intacto (regras §7).
-
-Cada turno resolvido fica em `build/sandbox/turns/state_NNNN.json` (histórico completo; o sandbox retoma onde ficou).
-
-## Correr
-
-Pré-requisito: o mundo gerado pelo módulo [world-map](../world-map/) (`world-map/web/data/`).
+- **Mapa** do Province-Forge com tudo: reinos, fronteiras, Praga (modo "Praga" mostra só a Praga), focos sugeridos
+  (círculo roxo) e focos pendentes.
+- **Jogadores:** quem já enviou ordens, quem falha turnos; **relógio** (o turno fecha sozinho de N em N minutos) ou
+  turno fechado à mão.
+- **Estado do mundo**, **Praga** (despertar, adormecer, intensidade, abrir focos), **rumores**, **ordens pendentes**.
+- **Pré-visualização:** simula 5–30 turnos numa cópia do jogo (os jogadores repetem as ordens do turno atual e depois
+  guarnecem; os guardiões jogam como bots).
+- **Ver como jogador:** o mapa e as mensagens tal como o servidor os envia a essa fação (nevoeiro, §8).
+- **Novo mundo:** os controlos do Province-Forge para o Praga (reinos 25–150, províncias por reino, território inicial,
+  terra, continentes, ilhas, lagos, rios, clima, recursos raros) com pré-visualização no browser (5–20 s). "Criar"
+  gera o mundo final no servidor, com progresso; depois, "Começar um jogo neste mundo" apaga o jogo atual e dá a cada
+  conta de jogador um reino do mundo novo.
 
 ```bash
-cd modules/gm-panel
-pip install fastapi uvicorn          # + o que o turn-engine precisa (só biblioteca padrão)
-cd frontend && npm install && npm run build && cd ..
-uvicorn backend.app:app --port 8000  # abrir http://127.0.0.1:8000
+cd frontend && npm install && npm run build      # o game-server serve frontend/dist em /gm/
+npm run dev                                      # desenvolvimento, com a API em localhost:8000
 ```
 
-Desenvolvimento da interface com recarga automática: `uvicorn …` num terminal e `cd frontend && npm run dev` noutro
-(o Vite reencaminha `/api` e `/data` para a porta 8000).
-
-Testes da API: `python -m unittest backend.test_api` (a partir de `modules/gm-panel`).
-
-## API
-
-| Método | Caminho | O que faz |
-|---|---|---|
-| GET | `/api/state` | estado atual, ordens pendentes, histórico, crónica |
-| GET | `/api/region/{id}` | detalhe de uma região |
-| GET | `/api/view/{fação}` | vista de um jogador: só o que essa fação sabe, mais as tabelas do mapa com nevoeiro |
-| POST | `/api/gm/orders` | acrescenta uma ordem do GM (`plague_state`, `plague_focus`, `plague_intensity`, `rumor`); 400 com a razão se for inválida |
-| DELETE | `/api/gm/orders/{i}` | retira a ordem `i` da fila |
-| POST | `/api/turn` | resolve o turno (bots + ordens do GM) |
-| POST | `/api/join` | simula a entrada de um jogador novo (recebe o guardião mais intacto); 409 se não houver |
-| POST | `/api/preview` | `{"turns": 10}` → estado previsto, série de métricas, regiões que caem, fações atingidas |
-| POST | `/api/reset` | `{"seed": "s1"}` → mundo novo |
-
-## Limites desta versão
-
-- Local e sem autenticação. Não expor na internet tal como está.
-- Um só GM e um só mundo por servidor.
-- As fações são bots; não há jogadores humanos nem relógio de 48 h.
-- O mapa (`/data`) tem o mundo inteiro. No sandbox não faz mal; no jogo real tem de ser servido por jogador.
-- A pré-visualização corre no servidor (~15 ms por turno); 30 turnos demoram cerca de meio segundo.
+O antigo modo sandbox (backend próprio, mundo do Azgaar) foi retirado em 2026-10-16; está no histórico do git.

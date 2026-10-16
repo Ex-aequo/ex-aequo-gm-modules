@@ -1,3 +1,5 @@
+import type { ViewerState } from "@pf/game/state";
+
 export type Order =
   | { type: "move"; army: number; path: number[] }
   | { type: "attack"; army: number; target: number }
@@ -41,15 +43,15 @@ export interface PlayerState {
   agents: { id: number; kind: "scout" | "spy"; region: number }[];
   factions: { id: number; name: string; bot: boolean }[];
   inbox: { turn: number; kind: "rumour" | "gm" | "report"; text: string }[];
-  owner: number[];
-  plague: number[];
-  fog: number[];
+  /** Vista para o mapa do Province-Forge (já filtrada pelo servidor). */
+  viewer: ViewerState;
+  region_info: Record<string, { terrain: string; resource: string | null; amount: number; rough: boolean }>;
   map_factions: { id: number; name: string; color: string }[];
   orders: Order[];
   order_cost: Record<string, number>;
   costs: {
     scout: Record<string, number>; spy: Record<string, number>; recruit_per_100: Record<string, number>;
-    fort: Record<string, number>; building: Record<string, Record<string, number>>;
+    fort: Record<string, number>; fort_by_region: Record<string, Record<string, number>>; building: Record<string, Record<string, number>>;
   };
   clock: { turn: number; timer_minutes: number; deadline: string | null };
   allowed_buildings: Record<string, string[]>;

@@ -1,7 +1,7 @@
 """Simulação: 24 fações-bot + entradas tardias + abandonos, N turnos, várias seeds, métricas agregadas.
 
 Uso (a partir de modules/turn-engine):
-    python -m sim.run --world ../world-map/web/data/world.json --turns 200 --seeds 5 --out build/sim
+    python -m sim.run --world tests/fixtures/world.json --turns 200 --seeds 5 --out build/sim
 Opções:
     --start small|world|azgaar   arranque pequeno, reinos do world.json, ou território do Azgaar (padrão: world se o mundo tiver reinos próprios, senão small)
     --set CAMPO=JSON       altera uma regra, ex.: --set 'plague_recede=0'

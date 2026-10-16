@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MapMarker } from "@map-renderer";
-import { api, GAME_MODE } from "./api";
-import { MapView } from "./MapView";
+import type { ClientMap } from "@pf/map/clientMap";
+import type { Marker } from "@forge-view/ForgeMap";
+import { api } from "./api";
+import { GmMap, fullViewer } from "./GmMap";
+import { NewWorld } from "./NewWorld";
 import type {
-  ChronicleEntry, GameState, GMOrder, InboxEntry, Intensity, KnownRegion, MapData, Metrics, PlayerView, Preview, RegionDetail,
+  ChronicleEntry, GameState, GMOrder, InboxEntry, Intensity, KnownRegion, Metrics, PlayerView, Preview, RegionDetail,
 } from "./types";
 
 const INTENSITY: { value: Intensity; label: string; hint: string }[] = [
@@ -12,10 +14,8 @@ const INTENSITY: { value: Intensity; label: string; hint: string }[] = [
   { value: "strong", label: "Forte", hint: "×1,5" },
 ];
 const BIOME_PT: Record<string, string> = {
-  "Hot desert": "Deserto quente", "Cold desert": "Deserto frio", Savanna: "Savana", Grassland: "Pradaria",
-  "Tropical seasonal forest": "Floresta tropical sazonal", "Temperate deciduous forest": "Floresta temperada",
-  "Tropical rainforest": "Floresta tropical húmida", "Temperate rainforest": "Floresta temperada húmida",
-  Taiga: "Taiga", Tundra: "Tundra", Glacier: "Glaciar", Wetland: "Pântano", Marine: "Marinho",
+  plains: "Planície", forest: "Floresta", hills: "Colinas", mountains: "Montanhas", desert: "Deserto",
+  marsh: "Pântano", jungle: "Selva", tundra: "Tundra",
 };
 const BUILDING_PT: Record<string, string> = { farm: "Quinta", sawmill: "Serração", iron_mine: "Mina de ferro", gold_mine: "Mina de ouro" };
 const pct = (x: number) => `${(x * 100).toFixed(1).replace(".", ",")}%`;
@@ -28,7 +28,9 @@ export function App() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewTurns, setPreviewTurns] = useState(10);
-  const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [cmap, setCmap] = useState<ClientMap | null>(null);
+  const [mapMode, setMapMode] = useState<"political" | "praga">("political");
+  const [newWorld, setNewWorld] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [confirmFocus, setConfirmFocus] = useState<number | null>(null);
   const [selected, setSelected] = useState(0);
@@ -55,7 +57,6 @@ export function App() {
   useEffect(() => { run("A carregar", async () => setGame(await api.state())); }, [run]);
   // no jogo real, o estado muda sem o GM (ordens dos jogadores, relógio): relê-se de 20 em 20 s
   useEffect(() => {
-    if (!GAME_MODE) return;
     const t = setInterval(() => { api.state().then(setGame).catch(() => {}); }, 20000);
     return () => clearInterval(t);
   }, []);
@@ -72,8 +73,8 @@ export function App() {
     setCentredOn(view.faction.id);
   }, [view, centredOn]);
 
-  const regionName = (id: number) => names.get(id) ?? `região ${id}`;
-  const knownTo = (id: number) => !view || (view.fog[id] ?? 0) > 0;
+  const regionName = (id: number) => cmap?.regions[id - 1]?.name?.pt ?? `região ${id}`;
+  const knownTo = (id: number) => !view || String(id) in view.regions;
   const factionName = (id: number) =>
     id === -1 ? "A Praga" : id === 0 ? "Terras livres" : game?.factions.find((f) => f.id === id)?.name ?? `fação ${id}`;
 
@@ -103,18 +104,6 @@ export function App() {
       setPreview(await api.preview(previewTurns));
       setShowPreview(true);
     });
-  const join = () =>
-    run("A simular a entrada", async () => {
-      setGame(await api.join());
-      invalidatePreview();
-    });
-  const reset = () =>
-    run("A recomeçar", async () => {
-      setGame(await api.reset(`s${Date.now() % 100000}`));
-      invalidatePreview();
-      setSelected(0);
-      setDetail(null);
-    });
 
   const onRegionClick = (id: number) => {
     if (!id) return;
@@ -123,40 +112,44 @@ export function App() {
     if (!viewAs) run("A ler região", async () => setDetail(await api.region(id)));
   };
 
-  const markers = useMemo<MapMarker[]>(() => {
-    if (!game || viewAs) return [];
+  const markers = useMemo<Marker[]>(() => {
+    if (!game) return [];
+    if (view) {                                         // "ver como": os exércitos e agentes dessa fação
+      return [...view.armies.map((a): Marker => ({ region: a.region, kind: "army", label: String(a.men) })),
+        ...view.agents.map((g): Marker => ({ region: g.region, kind: "agent" }))];
+    }
     const pendingFoci = game.pending.filter((o): o is Extract<GMOrder, { type: "plague_focus" }> => o.type === "plague_focus").map((o) => o.region);
-    const list: MapMarker[] = game.suggested_foci.filter((r) => !pendingFoci.includes(r)).map((r) => ({ region: r, kind: "suggestion" }));
-    for (const r of pendingFoci) list.push({ region: r, kind: "pending", label: "foco pendente" });
-    if (confirmFocus) list.push({ region: confirmFocus, kind: "pending", label: "confirmar?" });
+    const list: Marker[] = game.suggested_foci.filter((r) => !pendingFoci.includes(r)).map((r) => ({ region: r, kind: "focus" }));
+    for (const r of pendingFoci) list.push({ region: r, kind: "target", label: "foco pendente" });
+    if (confirmFocus) list.push({ region: confirmFocus, kind: "target", label: "confirmar?" });
     return list;
-  }, [game, confirmFocus, viewAs]);
+  }, [game, confirmFocus, view]);
+
+  const shownState = showPreview && preview ? preview : game;
+  const viewer = useMemo(() => {
+    if (!cmap || !shownState) return null;
+    if (view) return view.viewer;
+    return fullViewer(cmap, shownState.owner, shownState.bands, game?.factions ?? []);
+  }, [cmap, shownState, view, game]);
+
+  if (newWorld || (game === null && error === "ainda não há jogo: corre scripts/new_game.py")) {
+    return <NewWorld onClose={game ? () => setNewWorld(false) : undefined} />;
+  }
 
   if (!game) {
     return <div className="boot">{error ? `Não foi possível ligar ao servidor: ${error}` : "A carregar o mundo…"}</div>;
   }
-  const shown = showPreview && preview ? preview : game;
   const m = game.metrics;
   const pendingState = game.pending.find((o) => o.type === "plague_state") as Extract<GMOrder, { type: "plague_state" }> | undefined;
   const pendingIntensity = game.pending.find((o) => o.type === "plague_intensity") as Extract<GMOrder, { type: "plague_intensity" }> | undefined;
   const nextActive = pendingState ? pendingState.value === "active" : game.plague_active;
   const nextIntensity = pendingIntensity?.value ?? game.plague_intensity;
   const leader = game.factions.find((f) => f.id === m.leader);
-  const mapData: MapData = view
-    ? { owner: view.owner, plague: view.plague, fog: view.fog, factions: [...view.map_factions, game.praga] }
-    : { owner: shown.owner, plague: shown.plague, fog: null, factions: [...shown.factions, game.praga] };
 
   return (
     <div className="app">
-      <MapView
-        data={mapData}
-        markers={markers}
-        selected={selected}
-        focusTarget={focusTarget}
-        onRegionClick={onRegionClick}
-        onHover={setHover}
-        onReady={setNames}
-      />
+      <GmMap view={viewer} markers={markers} selected={selected} focusTarget={focusTarget} mode={mapMode}
+        onRegionClick={onRegionClick} onHover={setHover} onReady={setCmap} />
       <div className="map-hud">
         {showPreview && preview && (
           <div className="banner preview">
@@ -176,13 +169,17 @@ export function App() {
             <button type="button" className="link" onClick={() => setViewAs(0)}>voltar à vista do GM</button>
           </div>
         )}
+        <div className="segmented map-mode" role="radiogroup" aria-label="Mapa">
+          <button type="button" role="radio" aria-checked={mapMode === "political"} className={mapMode === "political" ? "on" : ""} onClick={() => setMapMode("political")}>Reinos</button>
+          <button type="button" role="radio" aria-checked={mapMode === "praga"} className={mapMode === "praga" ? "on" : ""} onClick={() => setMapMode("praga")}>Praga</button>
+        </div>
         {hover > 0 && <div className="hover-name">{knownTo(hover) ? regionName(hover) : "Terra desconhecida"}</div>}
       </div>
 
       <aside className="panel">
         <header className="panel-head">
           <div>
-            <div className="eyebrow">Mestre de jogo · {GAME_MODE ? "jogo" : "sandbox"}</div>
+            <div className="eyebrow">Mestre de jogo · <button type="button" className="link" onClick={() => setNewWorld(true)}>novo mundo</button></div>
             <h1>Praga</h1>
           </div>
           <div className="turn-box">
@@ -194,7 +191,7 @@ export function App() {
         </header>
         {(busy || error) && <div className={`status ${error ? "err" : ""}`} role="status">{error ?? `${busy}…`}</div>}
 
-        {GAME_MODE && game.players && (
+        {game.players && (
           <PlayersCard game={game} busy={!!busy} onTimer={(m) => run("A acertar o relógio", async () => setGame(await api.timer(m)))} />
         )}
 
@@ -337,14 +334,9 @@ export function App() {
               ))}
             </tbody>
           </table>
-          {!GAME_MODE && <div className="row gap">
-            <button type="button" onClick={join} disabled={!!busy || !game.factions.some((f) => f.active && f.bot)}>
-              Simular entrada de um jogador
-            </button>
-            <span className="muted small">
-              {game.factions.filter((f) => f.active && f.bot).length} reinos-guardiões disponíveis; quem chega recebe o mais intacto.
-            </span>
-          </div>}
+          <p className="muted small">
+            {game.factions.filter((f) => f.active && f.bot).length} reinos-guardiões disponíveis; quem chega recebe o mais intacto.
+          </p>
           {game.factions.some((f) => !f.active) && (
             <p className="muted small">Fora do jogo: {game.factions.filter((f) => !f.active).map((f) => f.name).join(", ")}</p>
           )}
@@ -356,9 +348,8 @@ export function App() {
         </section>
 
         <footer className="panel-foot">
-          {GAME_MODE
-            ? <button type="button" className="link" onClick={() => api.logout().finally(() => { location.href = "/"; })}>Sair</button>
-            : <button type="button" className="link" onClick={reset} disabled={!!busy}>Recomeçar o mundo (nova seed)</button>}
+          <button type="button" className="link" onClick={() => setNewWorld(true)}>Novo mundo…</button>
+          <button type="button" className="link" onClick={() => api.logout().finally(() => { location.href = "/"; })}>Sair</button>
         </footer>
       </aside>
     </div>

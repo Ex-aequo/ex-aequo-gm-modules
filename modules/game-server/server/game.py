@@ -23,7 +23,10 @@ sys.path.insert(0, str(MODULES / "turn-engine"))
 from praga import DEFAULT, FREE, PRAGA, GameState, WorldMap, claim_kingdom, new_game, resolve_turn, validate  # noqa
 from praga.bots import bot_orders  # noqa: E402
 from praga.engine import validate_gm  # noqa: E402
-from praga.vision import player_view  # noqa: E402
+from praga.orders import fort_cost  # noqa: E402
+from praga.vision import plague_band, player_view  # noqa: E402
+
+from .forgemap import get_forgemap  # noqa: E402
 
 PRAGA_FACTION = {"id": PRAGA, "name": "A Praga", "color": "#3a1d40"}
 BAND_TO_PLAGUE = (0.0, 0.3, 0.6, 1.0)
@@ -62,6 +65,8 @@ class Game:
         self.timer_minutes = row["timer_minutes"]
         self.deadline = row["deadline"]
         self.region_name = {r["id"]: r["name"] for r in self.raw_world["regions"]}
+        self.full_names = {f["id"]: f.get("fullName", f["name"]) for f in self.raw_world["factions"]}
+        self.start_names = {f["id"]: f["name"] for f in self.raw_world["factions"]}
         self.loaded = True
 
     def _save(self, conn):
@@ -174,10 +179,45 @@ class Game:
             "protected": f.protected_until >= s.turn,
             "submitted": users[f.id]["submitted"] if f.id in users else None,
         } for f in s.factions.values()), key=lambda f: (-f["active"], f["bot"], -f["regions"], f["name"]))
-        return {"turn": s.turn, "owner": owner, "plague": plague, "plague_active": s.plague_active,
+        bands = [0] * (n + 1)
+        for rid, r in s.regions.items():
+            bands[rid] = 3 if r.owner == PRAGA else plague_band(r.plague, self.rules)
+        return {"turn": s.turn, "owner": owner, "plague": plague, "bands": bands, "plague_active": s.plague_active,
                 "plague_intensity": s.plague_intensity,
                 "suggested_foci": [rid for rid in s.foci if s.regions[rid].owner != PRAGA],
                 "factions": factions, "praga": PRAGA_FACTION, "metrics": self._metrics(s)}
+
+    # ------------------------------------------------------------------ vista para o mapa do Province-Forge
+    def _country(self, f) -> dict:
+        full = self.full_names.get(f.id, f.name) if f.name == self.start_names.get(f.id) else f.name
+        return {"id": str(f.id), "name": {"pt": f.name, "en": f.name}, "fullName": {"pt": full, "en": full},
+                "color": self.colors.get(f.id, "#8a8070")}
+
+    @staticmethod
+    def _province(owner: int, band: int) -> dict:
+        o = str(owner) if owner not in (FREE, PRAGA) else None
+        return {"owner": o, "controller": o, "praga": 3 if owner == PRAGA else int(band)}
+
+    def viewer_player(self, fid: int, v: dict) -> dict:
+        """ViewerState do Province-Forge a partir do que o jogador sabe (fotografias do motor, §8)."""
+        fm = get_forgemap(str(self.world_dir))
+        known = {int(k) for k in v["regions"]}
+        provinces, stale = {}, []
+        for k, e in v["regions"].items():
+            band = plague_band(e["plague"], self.rules) if "plague" in e else e.get("p", 0)
+            provinces[int(k) - 1] = self._province(e["o"], band)
+            if e["level"] == 1:
+                stale.append(int(k) - 1)
+        seen = {f["id"] for f in v["factions"]} | {fid}
+        details = {}
+        for rid in known:
+            info = self.world.regions[rid]
+            if info.resource:
+                details[rid - 1] = {"resource": info.resource, "amount": info.amount}
+        return {"turn": self.state.turn, "viewer": str(fid), "known": {str(fid): [r - 1 for r in known]},
+                "countries": [self._country(f) for f in self.state.factions.values() if f.id in seen],
+                "provinces": provinces, "visible": sorted(fm.visible_pf(known)), "stale": stale,
+                "details": details, "reserved": []}
 
     def gm_full(self) -> dict:
         snap = self.gm_state()
@@ -204,25 +244,26 @@ class Game:
         """Tudo o que o jogador fid sabe (nevoeiro, §8) + as suas ordens deste turno + o relógio."""
         s = self.state
         v = player_view(s, self.world, self.rules, fid)
-        n = len(s.regions)
-        owner, plague, fog = [0] * (n + 1), [0.0] * (n + 1), [0] * (n + 1)
-        for rid, e in v["regions"].items():
-            owner[rid] = e["o"]
-            fog[rid] = min(3, e["level"])
-            plague[rid] = round(e["plague"] / 100, 3) if "plague" in e else BAND_TO_PLAGUE[e["p"]]
         known = {f["id"] for f in v["factions"]} | {fid}
         v["regions"] = {str(k): e for k, e in v["regions"].items()}
-        v.update({"owner": owner, "plague": plague, "fog": fog,
+        viewer = self.viewer_player(fid, v)
+        own = s.regions_of(fid)
+        v.update({"viewer": viewer,
                   "map_factions": [{"id": f.id, "name": f.name, "color": self.colors.get(f.id, "#8a8070")}
                                    for f in s.factions.values() if f.id in known] + [PRAGA_FACTION],
+                  # factos fixos das regiões que conhece: terreno e recurso (o resto vem das fotografias)
+                  "region_info": {k: {"terrain": self.world.regions[int(k)].terrain,
+                                      "resource": self.world.regions[int(k)].resource,
+                                      "amount": self.world.regions[int(k)].amount,
+                                      "rough": self.world.regions[int(k)].rough} for k in v["regions"]},
                   "orders": self.orders_of(fid), "order_cost": self.rules.order_cost,
                   "costs": {"scout": self.rules.scout_cost, "spy": self.rules.spy_cost,
                             "recruit_per_100": self.rules.recruit_cost_per_100, "fort": self.rules.fort_cost,
+                            "fort_by_region": {str(rid): fort_cost(rid, self.rules, self.world) for rid in own},
                             "building": {str(k): v for k, v in self.rules.building_cost.items()}},
                   "clock": {"turn": s.turn, "timer_minutes": self.timer_minutes,
                             "deadline": self.deadline.isoformat() if self.deadline else None},
-                  "allowed_buildings": {str(rid): list(self.world.regions[rid].allowed_buildings)
-                                        for rid in s.regions_of(fid)}})
+                  "allowed_buildings": {str(rid): list(self.world.regions[rid].allowed_buildings) for rid in own}})
         return v
 
     def known_regions(self, fid: int) -> set[int]:

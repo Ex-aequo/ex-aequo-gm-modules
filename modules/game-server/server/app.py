@@ -4,7 +4,7 @@ Primeiro criar o jogo: python scripts/new_game.py (ver README).
 
   /            cliente dos jogadores (modules/player-client, compilado)
   /gm/         painel do mestre de jogo (modules/gm-panel, compilado)
-  /api/...     API; /api/map/... ficheiros do mapa, filtrados por jogador
+  /api/...     API; /api/map/... mapa do Province-Forge (client map e tiles), filtrado por jogador
 """
 from __future__ import annotations
 
@@ -18,10 +18,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth
-from .config import COOKIE_SECURE, GM_DIST, PLAYER_DIST, SESSION_DAYS
+from pathlib import Path
+
+from sqlalchemy import select, update
+
+from . import auth, db
+from .config import COOKIE_SECURE, GM_DIST, PLAYER_DIST, SESSION_DAYS, WORLDS_DIR
 from .game import Game, GameError
-from .mapdata import get_mapdata
+from .forgemap import get_forgemap
+from .worlds import JOBS, list_worlds
 
 app = FastAPI(title="Praga — servidor do jogo")
 GAME = Game()
@@ -81,10 +86,13 @@ def logout(response: Response, user: dict = Depends(auth.current_user)):
 
 @app.get("/api/me")
 def me(user: dict = Depends(auth.current_user)):
-    g = game()
-    f = g.state.factions.get(user["faction_id"]) if user["faction_id"] else None
+    if not GAME.loaded:
+        GAME.reload()
+    g = GAME if GAME.loaded else None                 # o GM entra mesmo sem jogo (para criar o primeiro mundo)
+    f = g.state.factions.get(user["faction_id"]) if g and user["faction_id"] else None
     return {"username": user["username"], "role": user["role"], "faction": user["faction_id"],
-            "faction_name": f.name if f else None, "world": g.raw_world.get("name")}
+            "faction_name": f.name if f else None, "world": g.raw_world.get("name") if g else None,
+            "has_game": g is not None}
 
 
 # ---------------------------------------------------------------------- jogador
@@ -101,54 +109,35 @@ def player_orders(orders: list[dict] = Body(..., embed=True), user: dict = Depen
 
 
 # ---------------------------------------------------------------------- mapa (filtrado por jogador)
-def _known(user: dict):
+def _visible(user: dict):
+    """(mapa, ids visíveis do Province-Forge ou None para o GM, chave de cache)."""
     g = game()
+    fm = get_forgemap(str(g.world_dir))
     if user["role"] == "gm":
-        return g, None, None
+        return fm, None, None
     fid = user["faction_id"]
-    return g, g.known_regions(fid), (fid, g.state.turn)
+    return fm, fm.visible_pf(g.known_regions(fid)), (fid, g.state.turn)
 
 
-@app.get("/api/map/world.json")
-def map_world(user: dict = Depends(auth.current_user)):
-    g, known, key = _known(user)
-    names = None
-    if known is not None:
-        v = g.player_state(user["faction_id"])
-        names = {f["id"]: f for f in v["map_factions"]}
-    return Response(get_mapdata(str(g.world_dir)).world_json(known, names, key), media_type="application/json")
+@app.get("/api/map/client-map.json")
+def map_client(user: dict = Depends(auth.current_user)):
+    fm, vis, key = _visible(user)
+    return Response(fm.client_map(vis, key), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/map/regions.png")
-def map_regions(user: dict = Depends(auth.current_user)):
-    g, known, key = _known(user)
-    return Response(get_mapdata(str(g.world_dir)).regions_png(known, key), media_type="image/png",
-                    headers={"Cache-Control": "no-store"})
-
-
-@app.get("/api/map/base.jpg")
-def map_base(user: dict = Depends(auth.current_user)):
-    g, known, key = _known(user)
-    return Response(get_mapdata(str(g.world_dir)).base_jpg(known, key), media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store"})
-
-
-@app.get("/api/map/tiles.json")
-def map_tiles_json(user: dict = Depends(auth.current_user)):
-    g, _, _ = _known(user)
-    data = get_mapdata(str(g.world_dir)).tiles_json()
+@app.get("/api/map/{ver}/tiles/{z}/{x}/{y}.webp")
+def map_tile(ver: str, z: int, x: int, y: int, user: dict = Depends(auth.current_user)):
+    fm, vis, key = _visible(user)
+    if vis is None:
+        p = fm.tile_path(z, x, y)
+        if p is None:
+            raise HTTPException(404, "tile inexistente")
+        return FileResponse(p, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
+    data = fm.player_tile(z, x, y, vis, key)
     if data is None:
-        raise HTTPException(404, "este mundo não tem tiles")
-    return Response(data, media_type="application/json")
-
-
-@app.get("/api/map/tiles/{z}/{name}")
-def map_tile(z: int, name: str, user: dict = Depends(auth.current_user)):
-    g, known, _ = _known(user)
-    p = get_mapdata(str(g.world_dir)).tile_path(z, name, known)
-    if p is None:
-        raise HTTPException(404, "tile inexistente ou desconhecido")
-    return FileResponse(p, media_type="image/webp", headers={"Cache-Control": "private, max-age=3600"})
+        raise HTTPException(404, "tile inexistente")
+    # muda quando o jogador conhece mais: o cliente põe o turno no URL ({ver}), por isso pode guardar-se
+    return Response(data, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
 
 
 # ---------------------------------------------------------------------- mestre de jogo (mesma API que o sandbox)
@@ -221,6 +210,63 @@ class Timer(BaseModel):
 def gm_timer(req: Timer, g: Game = Depends(gm)):
     g.set_timer(req.minutes)
     return g.gm_full()
+
+
+# ---------------------------------------------------------------------- mundos novos (GM)
+def gm_only(user: dict = Depends(auth.current_user)) -> dict:
+    auth.require_gm(user)
+    return user
+
+
+class NewWorld(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    seed: str = Field(..., min_length=1, max_length=60)
+    params: dict = {}
+    max_level: int = Field(4, ge=2, le=5)
+
+
+@app.get("/api/gm/worlds")
+def gm_worlds(_: dict = Depends(gm_only)):
+    if not GAME.loaded:
+        GAME.reload()
+    return {"worlds": list_worlds(), "job": JOBS.status(),
+            "current": str(GAME.world_dir) if GAME.loaded else None}
+
+
+@app.post("/api/gm/worlds")
+def gm_new_world(req: NewWorld, _: dict = Depends(gm_only)):
+    try:
+        return {"job": JOBS.start(req.name.strip(), req.seed.strip(), req.params, req.max_level)}
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+
+
+class StartGame(BaseModel):
+    dir: str
+
+
+@app.post("/api/gm/new-game")
+def gm_new_game(req: StartGame, _: dict = Depends(gm_only)):
+    """Começa um jogo novo num mundo gerado. APAGA o jogo atual; as contas dos jogadores ficam e cada uma recebe
+    um reino do mundo novo (o mais intacto, como quem entra a meio, §7)."""
+    d = Path(req.dir).resolve()
+    if d.parent != WORLDS_DIR.resolve() or not (d / "world.json").exists():
+        raise HTTPException(404, "mundo desconhecido")
+    g = Game.create(d, f"s{int(time.time()) % 100000}")
+    with db.engine.begin() as conn:
+        players = conn.execute(select(db.users.c.id, db.users.c.username)
+                               .where(db.users.c.role == "player").order_by(db.users.c.id)).all()
+    assigned = []
+    for uid, uname in players:
+        try:
+            fid = g.assign_kingdom()
+        except GameError:
+            fid = None
+        with db.engine.begin() as conn:
+            conn.execute(update(db.users).where(db.users.c.id == uid).values(faction_id=fid))
+        assigned.append({"username": uname, "faction": fid})
+    GAME.reload()
+    return {"ok": True, "players": assigned}
 
 
 # ---------------------------------------------------------------------- interfaces compiladas
